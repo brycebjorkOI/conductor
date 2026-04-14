@@ -65,7 +65,10 @@ egui-swift mirrors SwiftUI's API naming so you can think in SwiftUI and write Ru
 | `NavigationSplitView { sidebar } detail: { }` | `NavigationSplitView::new("id").show(ctx, \|sb, dt\| { })` | `.sidebar_width(160.0)` |
 | `Divider()` | `Divider::new().show(ui)` | `.inset(16.0)` for left indent |
 | `.sheet(isPresented: $open) { }` | `Sheet::new("id", &mut open, "Title").show(ctx, \|ui\| { })` | Animated backdrop |
-| `List { }` | `DataTable::new(&cols).show(ui, \|ui\| { })` | `.striped(true)` |
+| `List { ForEach... }` | `List::new().inset_grouped().show(ui, \|list\| { list.row(sel, \|ui\| {}) })` | `.divider_inset(16.0)` |
+| `TabView { }` | `TabView::new(&mut sel).tab("id", "Label", "sf_name", \|ui\| {}).show(ui)` | Bottom tab bar |
+| `.alert("Title", isPresented: $show) { }` | `Alert::new("Title", &mut show).destructive_action("Del").cancel().show(ctx)` | Returns `AlertAction` |
+| `DataTable / Table` | `DataTable::new(&cols).show(ui, \|ui\| { })` | `.striped(true)` |
 | `VStack(spacing: 8) { }` | `VStack::new().spacing(8.0).show(ui, \|ui\| { })` | `.padding()`, `.background()`, `.corner_radius()`, `.border()` |
 | `HStack { }` | `HStack::new().show(ui, \|ui\| { })` | Same modifiers as VStack |
 | `Spacer()` | `Spacer::trailing(ui, \|ui\| { trailing })` | Use inside HStack; `Spacer::fixed(16.0)` for gaps |

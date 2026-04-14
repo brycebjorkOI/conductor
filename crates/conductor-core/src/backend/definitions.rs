@@ -112,8 +112,6 @@ impl BackendDefinition for AnthropicBackend {
             "--output-format".into(),
             "stream-json".into(),
             "--verbose".into(),
-            "--max-turns".into(),
-            "1".into(),
         ];
         if let Some(ref model) = params.model {
             args.push("--model".into());

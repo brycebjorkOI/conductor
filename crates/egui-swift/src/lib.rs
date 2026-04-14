@@ -66,10 +66,15 @@ pub mod scroll_view;
 pub mod spacer;
 pub mod stacks;
 
+// Lists & tables
+pub mod list;
+
 // Navigation
 pub mod navigation_split_view;
+pub mod tab_view;
 
 // Advanced
+pub mod alert;
 pub mod context_menu;
 pub mod progress_indicator;
 pub mod sheet;

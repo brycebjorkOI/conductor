@@ -78,8 +78,11 @@ src/
   labeled_content.rs    — LabeledContent key-value rows
   scroll_view.rs        — ScrollView::vertical() / .horizontal() / .both()
 
+  list.rs               — Styled scrollable list with dividers and selection (Plain / InsetGrouped)
+  tab_view.rs           — Bottom tab bar with SF Symbol icons + labels
   navigation_split_view.rs — Sidebar + detail split layout
   toolbar.rs            — Top bar with leading/title/trailing regions
+  alert.rs              — Lightweight confirmation dialog with animated backdrop
   sheet.rs              — Modal panel with animated backdrop
   progress_indicator.rs — Spinner and progress bar (also ProgressView)
   context_menu.rs       — Styled right-click menu
@@ -166,6 +169,9 @@ The `Font` enum maps to SwiftUI's font styles:
 | `Image(systemName: "gear")` | `Image::system_name("gear").show(ui)` |
 | `NavigationSplitView { sidebar } detail: { }` | `NavigationSplitView::new("id").show(ctx, \|sb, dt\| { ... })` |
 | `Divider()` | `Divider::new().show(ui)` |
+| `List { ForEach... }` | `List::new().inset_grouped().show(ui, \|list\| { list.row(sel, \|ui\| { }) })` |
+| `TabView { }.tabItem { }` | `TabView::new(&mut sel).tab("id", "Label", "sf_name", \|ui\| { }).show(ui)` |
+| `.alert("Title", isPresented: $show) { }` | `Alert::new("Title", &mut show).destructive_action("Delete").cancel().show(ctx)` |
 | `.sheet(isPresented: $open) { }` | `Sheet::new("id", &mut open, "Title").show(ctx, \|ui\| { })` |
 | `VStack(spacing: 8) { }` | `VStack::new().spacing(8.0).show(ui, \|ui\| { })` |
 | `HStack { }.padding().background(.gray)` | `HStack::new().padding(12.0).background(p.surface_raised).show(ui, \|ui\| { })` |
@@ -207,6 +213,223 @@ HStack::new().show(ui, |ui| {
 
 For vertical bottom-push: `Spacer::bottom(ui, |ui| { ... })`.
 For fixed gaps: `Spacer::fixed(16.0).show(ui)`.
+
+## Cookbook — Common Patterns
+
+### Settings page with sidebar navigation
+
+```rust
+use egui_swift::prelude::*;
+
+NavigationSplitView::new("settings")
+    .sidebar_width(160.0)
+    .show(ctx, |sidebar, detail| {
+        sidebar.show(|ui| {
+            Label::heading("Settings").show(ui);
+            Spacer::fixed(8.0).show(ui);
+            Divider::new().show(ui);
+            Spacer::fixed(8.0).show(ui);
+
+            for (id, label, sf) in [("general", "General", "gear"), ("about", "About", "info.circle")] {
+                let icon = egui_swift::image::sf_symbol(sf);
+                if NavRow::new(label).icon(icon).active(selected == id).show(ui).clicked() {
+                    selected = id.to_string();
+                }
+            }
+        });
+        detail.show(|ui| {
+            match selected.as_str() {
+                "about" => about_view(ui),
+                _ => general_view(ui),
+            }
+        });
+    });
+```
+
+### Form with toggles, picker, and validation
+
+```rust
+fn general_view(ui: &mut egui::Ui) {
+    Label::heading("General").show(ui);
+    Spacer::fixed(16.0).show(ui);
+
+    Section::new().header("Appearance").show(ui, |ui| {
+        Toggle::new(&mut dark_mode).label("Dark mode").show(ui);
+        Spacer::fixed(4.0).show(ui);
+        let langs = vec![("en".into(), "English"), ("es".into(), "Spanish")];
+        Picker::new("Language", &mut language, &langs).show(ui);
+    });
+
+    Spacer::fixed(12.0).show(ui);
+
+    Section::new().header("Account").show(ui, |ui| {
+        TextField::new(&mut name).label("Name").placeholder("Your name").show(ui);
+        Spacer::fixed(8.0).show(ui);
+        TextField::new(&mut email).label("Email").placeholder("email@example.com").show(ui);
+    });
+
+    Spacer::fixed(16.0).show(ui);
+
+    let valid = !name.trim().is_empty() && email.contains('@');
+    ButtonRow::show(ui, |ui| {
+        Button::new("Cancel").style(ButtonStyle::Bordered).show(ui);
+        Button::new("Save").style(ButtonStyle::BorderedProminent).enabled(valid).show(ui);
+    });
+}
+```
+
+### Heading with trailing action button
+
+```rust
+HStack::new().show(ui, |ui| {
+    Label::heading("Documents").show(ui);
+    Spacer::trailing(ui, |ui| {
+        if Button::new("+ New").style(ButtonStyle::BorderedProminent).small(true).show(ui).clicked() {
+            // handle action
+        }
+    });
+});
+```
+
+### List with search filtering
+
+```rust
+SearchField::new(&mut query).show(ui);
+Spacer::fixed(8.0).show(ui);
+
+let filtered: Vec<_> = items.iter().enumerate()
+    .filter(|(_, item)| query.is_empty() || item.name.to_lowercase().contains(&query.to_lowercase()))
+    .collect();
+
+List::new().inset_grouped().divider_inset(16.0).show(ui, |list| {
+    for (i, item) in filtered {
+        if list.row(i == selected, |ui| {
+            HStack::new().spacing(8.0).show(ui, |ui| {
+                Image::system_name(&item.icon).show(ui);
+                VStack::new().spacing(2.0).show(ui, |ui| {
+                    Text::new(&item.name).font(Font::Callout).show(ui);
+                    Text::new(&item.detail).font(Font::Caption).secondary().show(ui);
+                });
+            });
+        }).clicked() {
+            selected = i;
+        }
+    }
+});
+```
+
+### Card grid
+
+```rust
+ScrollView::vertical().show(ui, |ui| {
+    for item in &items {
+        Card::new()
+            .padding(16.0)
+            .background(p.surface_raised)
+            .corner_radius(10.0)
+            .border(0.5, p.border_subtle)
+            .show(ui, |ui| {
+                HStack::new().show(ui, |ui| {
+                    StatusDot::new(item.status_color).show(ui);
+                    VStack::new().spacing(4.0).show(ui, |ui| {
+                        Text::new(&item.title).font(Font::Callout).bold(true).show(ui);
+                        Text::new(&item.subtitle).font(Font::Caption).secondary().show(ui);
+                    });
+                    Spacer::trailing(ui, |ui| {
+                        Button::new("View").style(ButtonStyle::Bordered).small(true).show(ui);
+                    });
+                });
+            });
+    }
+});
+```
+
+### Confirmation dialog
+
+```rust
+// In your state struct: show_delete: bool
+
+// Render the alert (call every frame — it auto-hides when not open):
+let action = Alert::new("Delete item?", &mut self.show_delete)
+    .message("This action cannot be undone.")
+    .destructive_action("Delete")
+    .cancel()
+    .show(ctx);
+
+if action == AlertAction::Destructive {
+    self.items.remove(self.selected);
+}
+
+// Trigger it from a button:
+if Button::new("Delete").style(ButtonStyle::Destructive).show(ui).clicked() {
+    self.show_delete = true;
+}
+```
+
+### Tab-based app layout
+
+```rust
+TabView::new(&mut self.selected_tab)
+    .tab("home", "Home", "house", |ui| {
+        Label::heading("Home").show(ui);
+        // home content...
+    })
+    .tab("search", "Search", "magnifyingglass", |ui| {
+        Label::heading("Search").show(ui);
+        SearchField::new(&mut self.query).show(ui);
+    })
+    .tab("settings", "Settings", "gear", |ui| {
+        Label::heading("Settings").show(ui);
+        // settings content...
+    })
+    .show(ui);
+```
+
+### Detail view with LabeledContent
+
+```rust
+Label::heading(&item.name).show(ui);
+Spacer::fixed(16.0).show(ui);
+
+Section::new().header("Details").show(ui, |ui| {
+    LabeledContent::new("Status", "Active").show(ui);
+    LabeledContent::new("Created", "2024-01-15").show(ui);
+    LabeledContent::new("Size", "2.4 MB").show(ui);
+    LabeledContent::labeled("Tags").show_with(ui, |ui| {
+        HStack::new().spacing(4.0).show(ui, |ui| {
+            Badge::new(3).show(ui);
+            Text::new("documents").font(Font::Caption).secondary().show(ui);
+        });
+    });
+});
+```
+
+### Complete minimal app skeleton
+
+```rust
+use egui_swift::prelude::*;
+
+fn main() -> eframe::Result {
+    eframe::run_native("My App", eframe::NativeOptions::default(), Box::new(|cc| {
+        egui_swift::theme::apply_macos_style(&cc.egui_ctx);
+        Ok(Box::new(MyApp::default()))
+    }))
+}
+
+#[derive(Default)]
+struct MyApp { /* state fields */ }
+
+impl eframe::App for MyApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let p = ctx.palette();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(p.surface))
+            .show(ctx, |ui| {
+                Label::heading("Hello, egui-swift!").show(ui);
+            });
+    }
+}
+```
 
 ## Adding a New Component
 

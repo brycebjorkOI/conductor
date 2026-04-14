@@ -55,10 +55,15 @@ pub use crate::scroll_view::ScrollView;
 pub use crate::spacer::Spacer;
 pub use crate::stacks::{HStack, StackExt, VStack};
 
+// Lists & tables
+pub use crate::list::{List, ListStyle};
+
 // Navigation
 pub use crate::navigation_split_view::NavigationSplitView;
+pub use crate::tab_view::TabView;
 
 // Advanced
+pub use crate::alert::{Alert, AlertAction};
 pub use crate::progress_indicator::ProgressIndicator;
 pub use crate::sheet::Sheet;
 pub use crate::toolbar::Toolbar;
