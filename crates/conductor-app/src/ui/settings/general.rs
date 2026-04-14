@@ -1,10 +1,7 @@
 use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
-use egui_swift::colors;
-use egui_swift::form_section::FormSection;
-use egui_swift::radio_group::RadioGroup;
-use egui_swift::toggle::Toggle;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
@@ -13,14 +10,7 @@ pub fn show(
     shared: &SharedState,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    let p = colors::palette(ui);
-
-    ui.label(
-        egui::RichText::new("General")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("General").show(ui);
     ui.add_space(16.0);
 
     let mut config = shared.read().config.clone();
@@ -34,7 +24,7 @@ pub fn show(
             ("remote_server".into(), "Remote Server"),
         ];
         RadioGroup::new(&mut config.general.connection_mode, &modes).show(ui);
-        changed = true; // RadioGroup mutates in place; we always sync
+        changed = true;
     });
 
     ui.add_space(12.0);
@@ -77,12 +67,9 @@ pub fn show(
             ("warn".into(), "Warn"),
             ("error".into(), "Error"),
         ];
-        egui_swift::picker::Picker::new("Log level", &mut config.logging.level, &levels)
-            .show(ui);
+        Picker::new("Log level", &mut config.logging.level, &levels).show(ui);
         changed = true;
     });
-
-    ui.add_space(16.0);
 
     if changed {
         shared.mutate(|s| s.config = config);

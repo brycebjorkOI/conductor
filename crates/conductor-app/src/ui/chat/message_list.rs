@@ -1,9 +1,5 @@
 use conductor_core::state::*;
-use egui_swift::card::Card;
-use egui_swift::colors;
-use egui_swift::divider::Divider;
-use egui_swift::icons;
-use egui_swift::theme::Layout;
+use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui, session: &Session) {
     let is_streaming = session
@@ -15,85 +11,71 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
         .auto_shrink([false; 2])
         .stick_to_bottom(is_streaming || !session.messages.is_empty())
         .show(ui, |ui| {
-            let available_width = ui.available_width();
-            let content_width = available_width.min(Layout::MAX_CONTENT_WIDTH);
-            let side_padding = ((available_width - content_width) / 2.0).max(24.0);
+            ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
+                if session.messages.is_empty() {
+                    render_empty_state(ui);
+                    return;
+                }
 
-            ui.horizontal(|ui| {
-                ui.add_space(side_padding);
-                ui.vertical(|ui| {
-                    ui.set_max_width(content_width);
+                ui.add_space(24.0);
 
-                    if session.messages.is_empty() {
-                        render_empty_state(ui);
-                        return;
+                for msg in &session.messages {
+                    render_message(ui, msg);
+                    ui.add_space(Layout::MESSAGE_SPACING);
+                }
+
+                if is_streaming {
+                    let p = ui.palette();
+                    let time = ui.input(|i| i.time);
+                    let visible = (time * 2.5) as u64 % 2 == 0;
+                    if visible {
+                        ui.label(
+                            egui::RichText::new("\u{2588}")
+                                .size(Layout::BODY_FONT_SIZE)
+                                .color(p.accent),
+                        );
+                    } else {
+                        ui.add_space(Layout::BODY_FONT_SIZE + 4.0);
                     }
+                    ui.ctx().request_repaint();
+                }
 
-                    ui.add_space(24.0);
-
-                    for msg in &session.messages {
-                        render_message(ui, msg);
-                        ui.add_space(Layout::MESSAGE_SPACING);
-                    }
-
-                    if is_streaming {
-                        let p = colors::palette(ui);
-                        let time = ui.input(|i| i.time);
-                        let visible = (time * 2.5) as u64 % 2 == 0;
-                        if visible {
-                            ui.label(
-                                egui::RichText::new("\u{2588}")
-                                    .size(Layout::BODY_FONT_SIZE)
-                                    .color(p.accent),
-                            );
-                        } else {
-                            ui.add_space(Layout::BODY_FONT_SIZE + 4.0);
-                        }
-                        ui.ctx().request_repaint();
-                    }
-
-                    ui.add_space(24.0);
-                });
-                ui.add_space(side_padding);
+                ui.add_space(24.0);
             });
         });
 }
 
 fn render_empty_state(ui: &mut egui::Ui) {
-    let p = colors::palette(ui);
-    let greeting = {
-        let hour = chrono::Local::now()
-            .format("%H")
-            .to_string()
-            .parse::<u32>()
-            .unwrap_or(12);
-        if hour < 12 {
-            "Good morning"
-        } else if hour < 18 {
-            "Good afternoon"
-        } else {
-            "Good evening"
-        }
-    };
-
     let available_height = ui.available_height();
     let top_space = (available_height * 0.30).max(60.0);
     ui.add_space(top_space);
 
     ui.vertical_centered(|ui| {
-        ui.label(
-            egui::RichText::new(format!("{}  {greeting}", icons::SPARKLE))
-                .size(26.0)
-                .color(p.text_primary),
-        );
+        let greeting = {
+            let hour = chrono::Local::now()
+                .format("%H")
+                .to_string()
+                .parse::<u32>()
+                .unwrap_or(12);
+            if hour < 12 {
+                "Good morning"
+            } else if hour < 18 {
+                "Good afternoon"
+            } else {
+                "Good evening"
+            }
+        };
+
+        Label::new(&format!("{}  {greeting}", icons::SPARKLE))
+            .font(Font::LargeTitle)
+            .show(ui);
 
         ui.add_space(8.0);
 
-        ui.label(
-            egui::RichText::new("How can I help you today?")
-                .size(14.5)
-                .color(p.text_muted),
-        );
+        Label::new("How can I help you today?")
+            .font(Font::Body)
+            .muted()
+            .show(ui);
     });
 }
 
@@ -107,7 +89,7 @@ fn render_message(ui: &mut egui::Ui, msg: &Message) {
 }
 
 fn render_user_message(ui: &mut egui::Ui, msg: &Message) {
-    let p = colors::palette(ui);
+    let p = ui.palette();
     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
         let frame = egui::Frame::NONE
             .fill(p.user_bubble_bg)
@@ -124,11 +106,7 @@ fn render_user_message(ui: &mut egui::Ui, msg: &Message) {
             ui.with_layout(
                 egui::Layout::left_to_right(egui::Align::TOP).with_main_wrap(true),
                 |ui| {
-                    ui.label(
-                        egui::RichText::new(&msg.content)
-                            .size(Layout::BODY_FONT_SIZE)
-                            .color(p.text_primary),
-                    );
+                    Label::new(&msg.content).font(Font::Body).show(ui);
                 },
             );
         });
@@ -136,7 +114,6 @@ fn render_user_message(ui: &mut egui::Ui, msg: &Message) {
 }
 
 fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
-    let p = colors::palette(ui);
     for card in &msg.tool_cards {
         render_tool_card(ui, card);
         ui.add_space(6.0);
@@ -149,12 +126,11 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
 
     if msg.status == MessageStatus::Cancelled {
         ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new("Stopped generating")
-                .italics()
-                .size(Layout::SMALL_FONT_SIZE)
-                .color(p.text_muted),
-        );
+        Label::new("Stopped generating")
+            .font(Font::Subheadline)
+            .italic(true)
+            .muted()
+            .show(ui);
     }
 
     if let Some(ref usage) = msg.usage {
@@ -173,44 +149,40 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
             parts.push(format!("{:.1}s", ms as f64 / 1000.0));
         }
         if !parts.is_empty() {
-            ui.label(
-                egui::RichText::new(parts.join(" \u{00b7} "))
-                    .size(Layout::CAPTION_FONT_SIZE)
-                    .color(p.text_muted),
-            );
+            Label::new(&parts.join(" \u{00b7} "))
+                .font(Font::Caption)
+                .muted()
+                .show(ui);
         }
     }
 }
 
 fn render_system_message(ui: &mut egui::Ui, msg: &Message) {
-    let p = colors::palette(ui);
     ui.vertical_centered(|ui| {
-        ui.label(
-            egui::RichText::new(&msg.content)
-                .size(Layout::SMALL_FONT_SIZE)
-                .italics()
-                .color(p.text_muted),
-        );
+        Label::new(&msg.content)
+            .font(Font::Subheadline)
+            .italic(true)
+            .muted()
+            .show(ui);
     });
 }
 
 fn render_error_message(ui: &mut egui::Ui, msg: &Message) {
-    let p = colors::palette(ui);
+    let p = ui.palette();
     Card::new()
         .border_color(p.status_red)
         .padding(egui::Margin::symmetric(16, 10))
         .show(ui, |ui| {
             ui.set_max_width(Layout::MAX_CONTENT_WIDTH);
-            ui.label(
-                egui::RichText::new(&msg.content)
-                    .size(Layout::BODY_FONT_SIZE)
-                    .color(p.status_red),
-            );
+            Label::new(&msg.content)
+                .font(Font::Body)
+                .destructive()
+                .show(ui);
         });
 }
 
 fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
-    let p = colors::palette(ui);
+    let p = ui.palette();
     let (status_icon, status_color) = match card.phase {
         ToolPhase::Started => (icons::CIRCLE_FILLED, p.status_yellow),
         ToolPhase::Completed => (icons::CHECKMARK, p.status_green),
@@ -222,7 +194,7 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
         .show(ui, |ui| {
             egui::CollapsingHeader::new(
                 egui::RichText::new(format!("{status_icon}  {}", card.tool_name))
-                    .size(12.0)
+                    .size(Font::Subheadline.size())
                     .monospace()
                     .color(status_color),
             )
@@ -230,34 +202,30 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
             .show(ui, |ui| {
                 for (key, value) in &card.arguments {
                     ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("{key}:"))
-                                .monospace()
-                                .size(Layout::CAPTION_FONT_SIZE)
-                                .color(p.text_secondary),
-                        );
+                        Label::new(&format!("{key}:"))
+                            .font(Font::Caption)
+                            .monospace(true)
+                            .secondary()
+                            .show(ui);
                         let val_str = match value {
                             serde_json::Value::String(s) => s.clone(),
                             other => other.to_string(),
                         };
-                        ui.label(
-                            egui::RichText::new(val_str)
-                                .monospace()
-                                .size(Layout::CAPTION_FONT_SIZE)
-                                .color(p.text_primary),
-                        );
+                        Label::new(&val_str)
+                            .font(Font::Caption)
+                            .monospace(true)
+                            .show(ui);
                     });
                 }
                 if let Some(ref result) = card.result {
                     ui.add_space(4.0);
                     Divider::new().show(ui);
                     ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(result)
-                            .monospace()
-                            .size(Layout::CAPTION_FONT_SIZE)
-                            .color(p.text_secondary),
-                    );
+                    Label::new(result)
+                        .font(Font::Caption)
+                        .monospace(true)
+                        .secondary()
+                        .show(ui);
                 }
             });
         });

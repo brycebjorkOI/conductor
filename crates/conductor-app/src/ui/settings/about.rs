@@ -1,55 +1,41 @@
-use egui_swift::colors;
-use egui_swift::divider::Divider;
-use egui_swift::form_section::FormSection;
+use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
-    let p = colors::palette(ui);
-
-    ui.label(
-        egui::RichText::new("Conductor")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("Conductor").show(ui);
     ui.add_space(16.0);
 
     FormSection::new().show(ui, |ui| {
-        ui.label(
-            egui::RichText::new(format!("Version: {}", env!("CARGO_PKG_VERSION")))
-                .size(13.0)
-                .color(p.text_primary),
-        );
+        Label::new(&format!("Version: {}", env!("CARGO_PKG_VERSION")))
+            .font(Font::Callout)
+            .show(ui);
         ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(format!("Target: {}", std::env::consts::ARCH))
-                .size(13.0)
-                .color(p.text_secondary),
-        );
+        Label::new(&format!("Target: {}", std::env::consts::ARCH))
+            .font(Font::Callout)
+            .secondary()
+            .show(ui);
     });
 
     ui.add_space(12.0);
 
-    ui.label(
-        egui::RichText::new(
-            "A unified, provider-agnostic conversational interface to multiple AI language-model backends.",
-        )
-        .size(13.0)
-        .color(p.text_secondary),
-    );
+    Label::new(
+        "A unified, provider-agnostic conversational interface to multiple AI language-model backends.",
+    )
+    .font(Font::Callout)
+    .secondary()
+    .show(ui);
+
     ui.add_space(8.0);
-    ui.label(
-        egui::RichText::new("Built with Rust + egui")
-            .size(12.0)
-            .color(p.text_muted),
-    );
+    Label::new("Built with Rust + egui")
+        .font(Font::Subheadline)
+        .muted()
+        .show(ui);
 
     ui.add_space(16.0);
     Divider::new().show(ui);
     ui.add_space(8.0);
 
-    ui.label(
-        egui::RichText::new("Licensed under the MIT License.")
-            .size(12.0)
-            .color(p.text_muted),
-    );
+    Label::new("Licensed under the MIT License.")
+        .font(Font::Subheadline)
+        .muted()
+        .show(ui);
 }

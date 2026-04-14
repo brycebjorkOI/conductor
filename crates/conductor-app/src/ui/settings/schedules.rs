@@ -2,17 +2,7 @@ use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
 use conductor_core::state::*;
-use egui_swift::button::{Button, ButtonStyle};
-use egui_swift::button_row::ButtonRow;
-use egui_swift::card::Card;
-use egui_swift::colors;
-use egui_swift::disclosure_group::DisclosureGroup;
-use egui_swift::divider::Divider;
-use egui_swift::empty_state::EmptyState;
-use egui_swift::form_section::FormSection;
-use egui_swift::radio_group::RadioGroup;
-use egui_swift::status_dot::StatusDot;
-use egui_swift::text_field::TextField;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
@@ -51,7 +41,7 @@ pub fn show(
     tx: &mpsc::UnboundedSender<Action>,
     tab_state: &mut SchedulesTabState,
 ) {
-    let p = colors::palette(ui);
+    let p = ui.palette();
 
     let state = shared.read();
     let jobs = state.scheduler.jobs.clone();
@@ -59,12 +49,7 @@ pub fn show(
 
     // Header row.
     ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("Scheduled Tasks")
-                .size(22.0)
-                .strong()
-                .color(p.text_primary),
-        );
+        Label::heading("Scheduled Tasks").show(ui);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if Button::new("+ Add Job")
                 .style(ButtonStyle::BorderedProminent)
@@ -78,15 +63,14 @@ pub fn show(
     });
 
     ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new(format!(
-            "{} job{}",
-            jobs.len(),
-            if jobs.len() == 1 { "" } else { "s" }
-        ))
-        .size(12.0)
-        .color(p.text_secondary),
-    );
+    Label::new(&format!(
+        "{} job{}",
+        jobs.len(),
+        if jobs.len() == 1 { "" } else { "s" }
+    ))
+    .font(Font::Subheadline)
+    .secondary()
+    .show(ui);
     ui.add_space(8.0);
 
     // -- Add Job form --
@@ -115,7 +99,7 @@ fn show_add_form(
     ui: &mut egui::Ui,
     tx: &mpsc::UnboundedSender<Action>,
     tab_state: &mut SchedulesTabState,
-    p: &egui_swift::colors::Palette,
+    p: &Palette,
 ) {
     let form = &mut tab_state.form;
 
@@ -276,7 +260,7 @@ fn show_job_card(
     job: &ScheduledJob,
     tx: &mpsc::UnboundedSender<Action>,
     tab_state: &mut SchedulesTabState,
-    p: &egui_swift::colors::Palette,
+    p: &Palette,
 ) {
     let status_color = if job.enabled {
         p.status_green

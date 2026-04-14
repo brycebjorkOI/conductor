@@ -4,10 +4,7 @@ use conductor_core::config;
 use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::AppState;
-use egui_swift::colors;
-use egui_swift::icons;
-use egui_swift::suggestion_chip;
-use egui_swift::theme::Layout;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 use crate::runtime::RuntimeHandle;
@@ -61,7 +58,7 @@ impl ConductorApp {
 
 impl eframe::App for ConductorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let p = colors::palette_from_ctx(ctx);
+        let p = ctx.palette();
 
         // Settings view.
         {
@@ -75,7 +72,7 @@ impl eframe::App for ConductorApp {
 
         // -- Sidebar --
         if self.sidebar_open {
-            egui_swift::sidebar::SidebarPanel::new()
+            SidebarPanel::new()
                 .width(Layout::SIDEBAR_WIDTH)
                 .show(ctx, |ui| {
                     ui::sidebar::show(
@@ -95,7 +92,7 @@ impl eframe::App for ConductorApp {
                     .inner_margin(egui::Margin {
                         left: 0,
                         right: 0,
-                        top: 30, // traffic light clearance
+                        top: 30,
                         bottom: 6,
                     }),
             )
@@ -125,7 +122,6 @@ impl eframe::App for ConductorApp {
         drop(state);
 
         if has_messages {
-            // --- Normal chat mode: input at bottom, messages above ---
             egui::TopBottomPanel::bottom("input_bar")
                 .frame(
                     egui::Frame::NONE
@@ -151,40 +147,25 @@ impl eframe::App for ConductorApp {
                     }
                 });
         } else {
-            // --- Empty state: greeting + centered input + suggestion chips ---
+            // --- Empty state ---
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
-                    let available_width = ui.available_width();
-                    let content_width = available_width.min(Layout::MAX_CONTENT_WIDTH);
-                    let side_padding = ((available_width - content_width) / 2.0).max(24.0);
                     let available_height = ui.available_height();
-
                     ui.vertical(|ui| {
                         ui.add_space(available_height * 0.28);
 
-                        // Greeting.
-                        ui.horizontal(|ui| {
-                            ui.add_space(side_padding);
-                            ui.vertical(|ui| {
-                                ui.set_max_width(content_width);
-                                ui.vertical_centered(|ui| {
-                                    let greeting = time_greeting();
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{}  {greeting}",
-                                            icons::SPARKLE
-                                        ))
-                                        .size(26.0)
-                                        .color(p.text_primary),
-                                    );
-                                });
+                        ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
+                            ui.vertical_centered(|ui| {
+                                let greeting = time_greeting();
+                                Label::new(&format!("{}  {greeting}", icons::SPARKLE))
+                                    .font(Font::LargeTitle)
+                                    .show(ui);
                             });
                         });
 
                         ui.add_space(24.0);
 
-                        // Chat input (centered).
                         ui::chat::input_bar::show(
                             ui,
                             &mut self.input_text,
@@ -196,7 +177,6 @@ impl eframe::App for ConductorApp {
 
                         ui.add_space(16.0);
 
-                        // Suggestion chips.
                         ui.vertical_centered(|ui| {
                             suggestion_chip::chip_row(
                                 ui,

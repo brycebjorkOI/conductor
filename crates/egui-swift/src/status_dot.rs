@@ -29,26 +29,26 @@ impl<'a> StatusDot<'a> {
         self
     }
 
-    pub fn show(self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            let (dot_rect, _) =
-                ui.allocate_exact_size(egui::vec2(self.size, self.size), egui::Sense::hover());
+    pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
+        let (dot_rect, response) =
+            ui.allocate_exact_size(egui::vec2(self.size, self.size), egui::Sense::hover());
 
-            if ui.is_rect_visible(dot_rect) {
-                ui.painter().circle_filled(
-                    dot_rect.center(),
-                    self.size / 2.0,
-                    self.color,
-                );
-            }
+        if ui.is_rect_visible(dot_rect) {
+            ui.painter().circle_filled(
+                dot_rect.center(),
+                self.size / 2.0,
+                self.color,
+            );
+        }
 
-            if let Some(text) = self.label {
-                ui.label(
-                    egui::RichText::new(text)
-                        .size(12.0)
-                        .color(crate::colors::palette(ui).text_secondary),
-                );
-            }
-        });
+        if let Some(text) = self.label {
+            ui.label(
+                egui::RichText::new(text)
+                    .size(12.0)
+                    .color(crate::colors::palette(ui).text_secondary),
+            );
+        }
+
+        response
     }
 }

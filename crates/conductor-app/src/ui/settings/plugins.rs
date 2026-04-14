@@ -1,23 +1,13 @@
-use egui_swift::colors;
-use egui_swift::empty_state::EmptyState;
-use egui_swift::form_section::FormSection;
+use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
-    let p = colors::palette(ui);
-
-    ui.label(
-        egui::RichText::new("Plugins")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("Plugins").show(ui);
     ui.add_space(8.0);
 
-    ui.label(
-        egui::RichText::new("Plugins are npm-based extensions running in the companion server.")
-            .size(13.0)
-            .color(p.text_secondary),
-    );
+    Label::new("Plugins are npm-based extensions running in the companion server.")
+        .font(Font::Callout)
+        .secondary()
+        .show(ui);
     ui.add_space(12.0);
 
     FormSection::new().header("Installed Plugins").show(ui, |ui| {
@@ -29,12 +19,11 @@ pub fn show(ui: &mut egui::Ui) {
     ui.add_space(12.0);
 
     FormSection::new().header("Install Plugin").show(ui, |ui| {
-        ui.label(
-            egui::RichText::new(
-                "Enter an npm package name to install a plugin on the companion server.",
-            )
-            .size(12.0)
-            .color(p.text_secondary),
-        );
+        Label::new(
+            "Enter an npm package name to install a plugin on the companion server.",
+        )
+        .font(Font::Subheadline)
+        .secondary()
+        .show(ui);
     });
 }

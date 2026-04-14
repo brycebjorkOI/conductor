@@ -1,20 +1,9 @@
-use egui_swift::button::{Button, ButtonStyle};
-use egui_swift::card::Card;
-use egui_swift::colors;
-use egui_swift::empty_state::EmptyState;
-use egui_swift::form_section::FormSection;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
 pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
-    let p = colors::palette(ui);
-
-    ui.label(
-        egui::RichText::new("MCP Server Configuration")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("MCP Server Configuration").show(ui);
     ui.add_space(12.0);
 
     let state = shared.read();
@@ -43,60 +32,54 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
             .header(&format!("Backend: {backend_id}"))
             .show(ui, |ui| {
                 let transports = conductor_core::mcp::supported_transports(backend_id);
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Transports: {}",
-                        transports
-                            .iter()
-                            .map(|t| format!("{t:?}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ))
-                    .size(11.0)
-                    .color(p.text_secondary),
-                );
+                Label::new(&format!(
+                    "Transports: {}",
+                    transports
+                        .iter()
+                        .map(|t| format!("{t:?}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+                .font(Font::Caption)
+                .secondary()
+                .show(ui);
 
                 let servers = mcp_servers.get(*backend_id);
                 if let Some(servers) = servers {
                     for server in servers {
                         Card::new().show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new(&server.name)
-                                        .strong()
-                                        .size(13.0),
-                                );
-                                ui.label(
-                                    egui::RichText::new(format!("{:?}", server.transport))
-                                        .size(11.0)
-                                        .monospace()
-                                        .color(p.text_muted),
-                                );
+                                Label::new(&server.name)
+                                    .font(Font::Callout)
+                                    .bold(true)
+                                    .show(ui);
+                                Label::new(&format!("{:?}", server.transport))
+                                    .font(Font::Caption)
+                                    .monospace(true)
+                                    .muted()
+                                    .show(ui);
                             });
                             if let Some(ref cmd) = server.command {
-                                ui.label(
-                                    egui::RichText::new(format!("Command: {cmd}"))
-                                        .size(11.0)
-                                        .monospace()
-                                        .color(p.text_secondary),
-                                );
+                                Label::new(&format!("Command: {cmd}"))
+                                    .font(Font::Caption)
+                                    .monospace(true)
+                                    .secondary()
+                                    .show(ui);
                             }
                             if let Some(ref url) = server.url {
-                                ui.label(
-                                    egui::RichText::new(format!("URL: {url}"))
-                                        .size(11.0)
-                                        .monospace()
-                                        .color(p.text_secondary),
-                                );
+                                Label::new(&format!("URL: {url}"))
+                                    .font(Font::Caption)
+                                    .monospace(true)
+                                    .secondary()
+                                    .show(ui);
                             }
                         });
                     }
                 } else {
-                    ui.label(
-                        egui::RichText::new("No MCP servers configured for this backend.")
-                            .size(12.0)
-                            .color(p.text_muted),
-                    );
+                    Label::new("No MCP servers configured for this backend.")
+                        .font(Font::Subheadline)
+                        .muted()
+                        .show(ui);
                 }
 
                 ui.add_space(4.0);

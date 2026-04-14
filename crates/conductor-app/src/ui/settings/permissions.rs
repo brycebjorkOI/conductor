@@ -1,10 +1,7 @@
 use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
-use egui_swift::button::{Button, ButtonStyle};
-use egui_swift::colors;
-use egui_swift::form_section::FormSection;
-use egui_swift::radio_group::RadioGroup;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
@@ -13,20 +10,12 @@ pub fn show(
     shared: &SharedState,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    let p = colors::palette(ui);
-
-    ui.label(
-        egui::RichText::new("Permissions")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("Permissions").show(ui);
     ui.add_space(16.0);
 
     let mut config = shared.read().config.clone();
     let mut changed = false;
 
-    // -- Execution Approval Mode --
     FormSection::new()
         .header("Execution Approval Mode")
         .show(ui, |ui| {
@@ -48,21 +37,20 @@ pub fn show(
 
     ui.add_space(12.0);
 
-    // -- Allowlist Rules --
     FormSection::new().header("Allowlist Rules").show(ui, |ui| {
         if config.security.allow_rules.is_empty() {
-            ui.label(
-                egui::RichText::new("No rules configured.")
-                    .size(12.0)
-                    .color(p.text_muted),
-            );
+            Label::new("No rules configured.")
+                .font(Font::Subheadline)
+                .muted()
+                .show(ui);
         } else {
             let mut to_remove = None;
             for (i, rule) in config.security.allow_rules.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(rule).monospace().size(12.0),
-                    );
+                    Label::new(rule)
+                        .font(Font::Subheadline)
+                        .monospace(true)
+                        .show(ui);
                     if Button::new("Remove")
                         .style(ButtonStyle::Destructive)
                         .small(true)
@@ -80,13 +68,12 @@ pub fn show(
         }
 
         ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(
-                "Format: tool_name glob_pattern (e.g. \"file_read *\", \"shell_exec cargo *\")",
-            )
-            .size(11.0)
-            .color(p.text_muted),
-        );
+        Label::new(
+            "Format: tool_name glob_pattern (e.g. \"file_read *\", \"shell_exec cargo *\")",
+        )
+        .font(Font::Caption)
+        .muted()
+        .show(ui);
     });
 
     if changed {

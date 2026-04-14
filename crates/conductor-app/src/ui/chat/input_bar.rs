@@ -3,9 +3,7 @@ use tokio::sync::mpsc;
 use conductor_core::commands;
 use conductor_core::events::Action;
 use conductor_core::state::SessionId;
-use egui_swift::card::Card;
-use egui_swift::chat_input::ChatInput;
-use egui_swift::theme::Layout;
+use egui_swift::prelude::*;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -15,7 +13,7 @@ pub fn show(
     active_session_id: &SessionId,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    // Autocomplete popup (rendered above the input).
+    // Autocomplete popup.
     if *show_autocomplete && input_text.starts_with('/') {
         let prefix = &input_text[1..];
         let suggestions = commands::autocomplete(prefix);
@@ -34,7 +32,7 @@ pub fn show(
                             if ui
                                 .selectable_label(
                                     false,
-                                    egui::RichText::new(label).size(13.0),
+                                    egui::RichText::new(label).size(Font::Callout.size()),
                                 )
                                 .clicked()
                             {
@@ -50,7 +48,6 @@ pub fn show(
 
     ui.add_space(4.0);
 
-    // Use the reusable ChatInput component.
     let resp = ChatInput::new(input_text)
         .placeholder("Type / for commands")
         .streaming(is_streaming)

@@ -3,13 +3,7 @@ use tokio::sync::mpsc;
 use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::SettingsTab;
-use egui_swift::conversation_item::ConversationItem;
-use egui_swift::divider::Divider;
-use egui_swift::icons;
-use egui_swift::nav_row::NavRow;
-use egui_swift::search_field::SearchField;
-use egui_swift::section_header::SectionHeader;
-use egui_swift::user_profile::UserProfile;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
@@ -49,7 +43,6 @@ pub fn show(
     sessions.sort_by(|a, b| a.1.cmp(&b.1));
     drop(state);
 
-    // -- New Conversation button --
     if NavRow::new("New Conversation")
         .icon(icons::PLUS)
         .show(ui)
@@ -60,7 +53,6 @@ pub fn show(
 
     ui.add_space(6.0);
 
-    // -- Search --
     ui.horizontal(|ui| {
         ui.add_space(8.0);
         ui.scope(|ui| {
@@ -71,22 +63,17 @@ pub fn show(
 
     ui.add_space(8.0);
 
-    // -- Nav items --
     if NavRow::new("Chats")
         .icon(icons::SPEECH_BALLOON)
         .active(true)
         .show(ui)
         .clicked()
-    {
-        // already on chats
-    }
+    {}
     if NavRow::new("Projects")
         .icon(icons::FOLDER)
         .show(ui)
         .clicked()
-    {
-        // future
-    }
+    {}
     if NavRow::new("Schedules")
         .icon(icons::CALENDAR)
         .show(ui)
@@ -100,27 +87,20 @@ pub fn show(
         .icon(icons::BELL)
         .show(ui)
         .clicked()
-    {
-        // future
-    }
+    {}
     if NavRow::new("Trash")
         .icon(icons::WASTEBASKET)
         .show(ui)
         .clicked()
-    {
-        // future
-    }
+    {}
 
     ui.add_space(8.0);
     Divider::new().inset(8.0).show(ui);
     ui.add_space(4.0);
 
-    // -- Recent section header --
     SectionHeader::new("Recent").show(ui);
-
     ui.add_space(4.0);
 
-    // -- Conversation list --
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
@@ -142,7 +122,6 @@ pub fn show(
             }
         });
 
-    // -- User profile at bottom --
     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
         ui.add_space(8.0);
         let resp = UserProfile::new("User")

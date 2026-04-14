@@ -2,21 +2,12 @@ use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
 use conductor_core::session;
-use egui_swift::button::{Button, ButtonStyle};
-use egui_swift::colors;
-use egui_swift::data_table::DataTable;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
 pub fn show(ui: &mut egui::Ui, shared: &SharedState, tx: &mpsc::UnboundedSender<Action>) {
-    let p = colors::palette(ui);
-
-    ui.label(
-        egui::RichText::new("Sessions")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("Sessions").show(ui);
     ui.add_space(12.0);
 
     let state = shared.read();
@@ -51,9 +42,11 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState, tx: &mpsc::UnboundedSender<
             } else {
                 name.clone()
             };
-            ui.label(egui::RichText::new(&label).size(12.0));
-            ui.label(egui::RichText::new(format!("{msg_count}")).size(12.0));
-            ui.label(egui::RichText::new(created).size(12.0));
+            Label::new(&label).font(Font::Subheadline).show(ui);
+            Label::new(&format!("{msg_count}"))
+                .font(Font::Subheadline)
+                .show(ui);
+            Label::new(created).font(Font::Subheadline).show(ui);
 
             if !is_active {
                 if Button::new("Switch")
@@ -67,11 +60,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState, tx: &mpsc::UnboundedSender<
                     });
                 }
             } else {
-                ui.label(
-                    egui::RichText::new("-")
-                        .size(12.0)
-                        .color(p.text_muted),
-                );
+                Label::new("-").font(Font::Subheadline).muted().show(ui);
             }
             ui.end_row();
         }

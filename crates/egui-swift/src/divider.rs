@@ -21,10 +21,10 @@ impl Divider {
         self
     }
 
-    pub fn show(self, ui: &mut egui::Ui) {
+    pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
         let available = ui.available_width();
-        let (rect, _) =
+        let (rect, response) =
             ui.allocate_exact_size(egui::vec2(available, 0.5), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
@@ -33,6 +33,8 @@ impl Divider {
             ui.painter()
                 .line_segment([start, end], egui::Stroke::new(0.5, p.divider));
         }
+
+        response
     }
 }
 

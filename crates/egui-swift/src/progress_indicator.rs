@@ -37,12 +37,12 @@ impl ProgressIndicator {
         self
     }
 
-    pub fn show(self, ui: &mut egui::Ui) {
+    pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
 
         match self.style {
             ProgressStyle::Spinner => {
-                let (rect, _) = ui.allocate_exact_size(
+                let (rect, response) = ui.allocate_exact_size(
                     egui::vec2(self.size, self.size),
                     egui::Sense::hover(),
                 );
@@ -55,8 +55,10 @@ impl ProgressIndicator {
                     let segments = 8;
 
                     for i in 0..segments {
-                        let angle = (i as f64 / segments as f64) * std::f64::consts::TAU + time * 4.0;
-                        let alpha = ((segments - i) as f32 / segments as f32 * 200.0) as u8;
+                        let angle = (i as f64 / segments as f64) * std::f64::consts::TAU
+                            + time * 4.0;
+                        let alpha =
+                            ((segments - i) as f32 / segments as f32 * 200.0) as u8;
                         let color = egui::Color32::from_rgba_premultiplied(
                             p.text_secondary.r(),
                             p.text_secondary.g(),
@@ -73,10 +75,12 @@ impl ProgressIndicator {
 
                     ui.ctx().request_repaint();
                 }
+
+                response
             }
             ProgressStyle::Bar(progress) => {
                 let available_width = ui.available_width();
-                let (rect, _) = ui.allocate_exact_size(
+                let (rect, response) = ui.allocate_exact_size(
                     egui::vec2(available_width, self.size),
                     egui::Sense::hover(),
                 );
@@ -95,6 +99,8 @@ impl ProgressIndicator {
                     );
                     painter.rect_filled(fill_rect, rounding, p.accent);
                 }
+
+                response
             }
         }
     }

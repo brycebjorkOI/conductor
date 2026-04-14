@@ -1,22 +1,13 @@
-use egui_swift::button::{Button, ButtonStyle};
-use egui_swift::colors;
+use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
-    let p = colors::palette(ui);
-
-    ui.label(
-        egui::RichText::new("Debug & Diagnostics")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("Debug & Diagnostics").show(ui);
     ui.add_space(12.0);
 
-    ui.label(
-        egui::RichText::new("Log viewer and diagnostics will be available here.")
-            .size(13.0)
-            .color(p.text_secondary),
-    );
+    Label::new("Log viewer and diagnostics will be available here.")
+        .font(Font::Callout)
+        .secondary()
+        .show(ui);
     ui.add_space(16.0);
 
     if Button::new("Export Diagnostics")

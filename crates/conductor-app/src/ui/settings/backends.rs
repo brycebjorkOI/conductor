@@ -2,17 +2,11 @@ use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
 use conductor_core::state::*;
-use egui_swift::button::{Button, ButtonStyle};
-use egui_swift::card::Card;
-use egui_swift::colors;
-use egui_swift::divider::Divider;
-use egui_swift::form_section::FormSection;
-use egui_swift::progress_indicator::ProgressIndicator;
-use egui_swift::status_dot::StatusDot;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
-fn discovery_color(state: DiscoveryState, p: &egui_swift::colors::Palette) -> egui::Color32 {
+fn discovery_color(state: DiscoveryState, p: &Palette) -> egui::Color32 {
     match state {
         DiscoveryState::Found => p.status_green,
         DiscoveryState::Scanning => p.status_yellow,
@@ -27,21 +21,15 @@ pub fn show(
     shared: &SharedState,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    let p = colors::palette(ui);
+    let p = ui.palette();
     let state = shared.read();
     let registry = state.backend_registry.clone();
     let default_id = state.default_backend_id.clone();
     let fallback = state.fallback_order.clone();
     drop(state);
 
-    // Header with rescan button.
     ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("Backends")
-                .size(22.0)
-                .strong()
-                .color(p.text_primary),
-        );
+        Label::heading("Backends").show(ui);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if Button::new("Rescan")
                 .style(ButtonStyle::Bordered)
@@ -55,7 +43,6 @@ pub fn show(
     });
     ui.add_space(12.0);
 
-    // -- Backend cards --
     for backend in &registry {
         let color = discovery_color(backend.discovery_state, &p);
 
@@ -68,66 +55,59 @@ pub fn show(
                 } else {
                     format!("{} v{}", backend.display_name, version)
                 };
-                ui.label(egui::RichText::new(title).strong().size(13.0));
+                Label::new(&title).font(Font::Callout).bold(true).show(ui);
             });
 
             match backend.discovery_state {
                 DiscoveryState::Found => {
                     if let Some(ref path) = backend.binary_path {
-                        ui.label(
-                            egui::RichText::new(format!("Path: {}", path.display()))
-                                .size(12.0)
-                                .color(p.text_secondary),
-                        );
+                        Label::new(&format!("Path: {}", path.display()))
+                            .font(Font::Subheadline)
+                            .secondary()
+                            .show(ui);
                     }
-                    ui.label(
-                        egui::RichText::new(format!("Auth: {:?}", backend.auth_state))
-                            .size(12.0)
-                            .color(p.text_secondary),
-                    );
+                    Label::new(&format!("Auth: {:?}", backend.auth_state))
+                        .font(Font::Subheadline)
+                        .secondary()
+                        .show(ui);
                     if !backend.available_models.is_empty() {
-                        let model_names: Vec<&str> = backend
+                        let names: Vec<&str> = backend
                             .available_models
                             .iter()
                             .map(|m| m.display_name.as_str())
                             .collect();
-                        ui.label(
-                            egui::RichText::new(format!("Models: {}", model_names.join(", ")))
-                                .size(12.0)
-                                .color(p.text_secondary),
-                        );
+                        Label::new(&format!("Models: {}", names.join(", ")))
+                            .font(Font::Subheadline)
+                            .secondary()
+                            .show(ui);
                     }
                 }
                 DiscoveryState::NotFound => {
-                    ui.label(
-                        egui::RichText::new("Not installed")
-                            .size(12.0)
-                            .color(p.text_muted),
-                    );
+                    Label::new("Not installed")
+                        .font(Font::Subheadline)
+                        .muted()
+                        .show(ui);
                 }
                 DiscoveryState::Scanning => {
                     ui.horizontal(|ui| {
                         ProgressIndicator::spinner().size(16.0).show(ui);
-                        ui.label(
-                            egui::RichText::new("Scanning...")
-                                .size(12.0)
-                                .color(p.text_muted),
-                        );
+                        Label::new("Scanning...")
+                            .font(Font::Subheadline)
+                            .muted()
+                            .show(ui);
                     });
                 }
                 DiscoveryState::Error => {
-                    ui.label(
-                        egui::RichText::new("Error during discovery")
-                            .size(12.0)
-                            .color(p.status_red),
-                    );
+                    Label::new("Error during discovery")
+                        .font(Font::Subheadline)
+                        .destructive()
+                        .show(ui);
                 }
                 DiscoveryState::NotScanned => {
-                    ui.label(
-                        egui::RichText::new("Not yet scanned")
-                            .size(12.0)
-                            .color(p.text_muted),
-                    );
+                    Label::new("Not yet scanned")
+                        .font(Font::Subheadline)
+                        .muted()
+                        .show(ui);
                 }
             }
         });
@@ -137,7 +117,6 @@ pub fn show(
     Divider::new().show(ui);
     ui.add_space(12.0);
 
-    // -- Default backend picker --
     FormSection::new().header("Default Backend").show(ui, |ui| {
         let current = default_id.as_deref().unwrap_or("none");
         egui::ComboBox::from_id_salt("default_backend")
@@ -161,15 +140,13 @@ pub fn show(
             });
     });
 
-    // -- Fallback order --
     ui.add_space(8.0);
     FormSection::new().header("Fallback Order").show(ui, |ui| {
         if fallback.is_empty() {
-            ui.label(
-                egui::RichText::new("No fallback backends configured.")
-                    .size(12.0)
-                    .color(p.text_muted),
-            );
+            Label::new("No fallback backends configured.")
+                .font(Font::Subheadline)
+                .muted()
+                .show(ui);
         } else {
             for (i, id) in fallback.iter().enumerate() {
                 let name = registry
@@ -177,11 +154,9 @@ pub fn show(
                     .find(|b| &b.backend_id == id)
                     .map(|b| b.display_name.as_str())
                     .unwrap_or(id.as_str());
-                ui.label(
-                    egui::RichText::new(format!("{}. {}", i + 1, name))
-                        .size(13.0)
-                        .color(p.text_primary),
-                );
+                Label::new(&format!("{}. {}", i + 1, name))
+                    .font(Font::Callout)
+                    .show(ui);
             }
         }
     });

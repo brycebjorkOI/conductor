@@ -1,18 +1,11 @@
-use egui_swift::card::Card;
-use egui_swift::colors;
-use egui_swift::status_dot::StatusDot;
+use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
 pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
-    let p = colors::palette(ui);
+    let p = ui.palette();
 
-    ui.label(
-        egui::RichText::new("Messaging Channels")
-            .size(22.0)
-            .strong()
-            .color(p.text_primary),
-    );
+    Label::heading("Messaging Channels").show(ui);
     ui.add_space(12.0);
 
     let state = shared.read();
@@ -36,18 +29,16 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
             Card::new().show(ui, |ui| {
                 ui.horizontal(|ui| {
                     StatusDot::new(p.text_muted).show(ui);
-                    ui.label(egui::RichText::new(name).strong().size(13.0));
-                    ui.label(
-                        egui::RichText::new("Not configured")
-                            .size(12.0)
-                            .color(p.text_muted),
-                    );
+                    Label::new(name).font(Font::Callout).bold(true).show(ui);
+                    Label::new("Not configured")
+                        .font(Font::Subheadline)
+                        .muted()
+                        .show(ui);
                 });
-                ui.label(
-                    egui::RichText::new(format!("Auth: {auth_hint}"))
-                        .size(11.0)
-                        .color(p.text_secondary),
-                );
+                Label::new(&format!("Auth: {auth_hint}"))
+                    .font(Font::Caption)
+                    .secondary()
+                    .show(ui);
             });
         }
     } else {
@@ -63,21 +54,22 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
             Card::new().border_color(status_color).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     StatusDot::new(status_color).show(ui);
-                    ui.label(egui::RichText::new(&ch.display_name).strong().size(13.0));
-                    ui.label(
-                        egui::RichText::new(format!("{:?}", ch.connection_state))
-                            .size(12.0)
-                            .color(p.text_secondary),
-                    );
+                    Label::new(&ch.display_name)
+                        .font(Font::Callout)
+                        .bold(true)
+                        .show(ui);
+                    Label::new(&format!("{:?}", ch.connection_state))
+                        .font(Font::Subheadline)
+                        .secondary()
+                        .show(ui);
                 });
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Recv: {} | Sent: {}",
-                        ch.stats.messages_received, ch.stats.messages_sent
-                    ))
-                    .size(11.0)
-                    .color(p.text_muted),
-                );
+                Label::new(&format!(
+                    "Recv: {} | Sent: {}",
+                    ch.stats.messages_received, ch.stats.messages_sent
+                ))
+                .font(Font::Caption)
+                .muted()
+                .show(ui);
             });
         }
     }
