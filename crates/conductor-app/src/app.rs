@@ -1,7 +1,4 @@
-use tokio::sync::mpsc;
-
 use conductor_core::config;
-use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::AppState;
 use egui_swift::prelude::*;
@@ -12,14 +9,13 @@ use crate::ui;
 
 pub struct ConductorApp {
     shared: SharedState,
-    action_tx: mpsc::UnboundedSender<Action>,
     _runtime: RuntimeHandle,
-    input_text: String,
-    show_autocomplete: bool,
-    sidebar_open: bool,
-    sidebar_state: ui::sidebar::SidebarState,
-    selected_backend_idx: usize,
-    schedules_state: ui::settings::schedules::SchedulesTabState,
+
+    // Views (each owns its own state + action sender).
+    sidebar: ui::sidebar::SidebarView,
+    header: ui::chat::header::HeaderView,
+    input_bar: ui::chat::input_bar::InputBarView,
+    settings: ui::settings::SettingsView,
 }
 
 impl ConductorApp {
@@ -41,17 +37,15 @@ impl ConductorApp {
 
         let shared = SharedState::new(state, cc.egui_ctx.clone());
         let runtime = RuntimeHandle::start(shared.clone());
+        let tx = runtime.action_tx.clone();
 
         Self {
             shared: shared.clone(),
-            action_tx: runtime.action_tx.clone(),
             _runtime: runtime,
-            input_text: String::new(),
-            show_autocomplete: false,
-            sidebar_open: true,
-            sidebar_state: ui::sidebar::SidebarState::default(),
-            selected_backend_idx: 0,
-            schedules_state: ui::settings::schedules::SchedulesTabState::default(),
+            sidebar: ui::sidebar::SidebarView::new(shared.clone(), tx.clone()),
+            header: ui::chat::header::HeaderView::new(shared.clone(), tx.clone()),
+            input_bar: ui::chat::input_bar::InputBarView::new(tx.clone()),
+            settings: ui::settings::SettingsView::new(shared.clone(), tx),
         }
     }
 }
@@ -61,26 +55,17 @@ impl eframe::App for ConductorApp {
         let p = ctx.palette();
 
         // Settings view.
-        {
-            let state = self.shared.read();
-            if state.settings_open {
-                drop(state);
-                ui::settings::show(ctx, &self.shared, &self.action_tx, &mut self.schedules_state);
-                return;
-            }
+        if self.shared.read().settings_open {
+            self.settings.show_ctx(ctx);
+            return;
         }
 
         // -- Sidebar --
-        if self.sidebar_open {
+        if self.header.sidebar_open {
             SidebarPanel::new()
                 .width(Layout::SIDEBAR_WIDTH)
                 .show(ctx, |ui| {
-                    ui::sidebar::show(
-                        ui,
-                        &self.shared,
-                        &self.action_tx,
-                        &mut self.sidebar_state,
-                    );
+                    self.sidebar.show(ui);
                 });
         }
 
@@ -97,13 +82,7 @@ impl eframe::App for ConductorApp {
                     }),
             )
             .show(ctx, |ui| {
-                ui::chat::header::show(
-                    ui,
-                    &self.shared,
-                    &self.action_tx,
-                    &mut self.sidebar_open,
-                    &mut self.selected_backend_idx,
-                );
+                self.header.show(ui);
             });
 
         // Gather session info.
@@ -129,14 +108,8 @@ impl eframe::App for ConductorApp {
                         .inner_margin(egui::Margin::ZERO),
                 )
                 .show(ctx, |ui| {
-                    ui::chat::input_bar::show(
-                        ui,
-                        &mut self.input_text,
-                        &mut self.show_autocomplete,
-                        is_streaming,
-                        &active_sid,
-                        &self.action_tx,
-                    );
+                    self.input_bar
+                        .show_for_session(ui, is_streaming, &active_sid);
                 });
 
             egui::CentralPanel::default()
@@ -166,14 +139,8 @@ impl eframe::App for ConductorApp {
 
                         Spacer::fixed(24.0).show(ui);
 
-                        ui::chat::input_bar::show(
-                            ui,
-                            &mut self.input_text,
-                            &mut self.show_autocomplete,
-                            is_streaming,
-                            &active_sid,
-                            &self.action_tx,
-                        );
+                        self.input_bar
+                            .show_for_session(ui, is_streaming, &active_sid);
 
                         Spacer::fixed(16.0).show(ui);
 

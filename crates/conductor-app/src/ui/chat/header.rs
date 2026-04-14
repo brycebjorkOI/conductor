@@ -6,89 +6,110 @@ use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
-pub fn show(
-    ui: &mut egui::Ui,
-    shared: &SharedState,
-    tx: &mpsc::UnboundedSender<Action>,
-    sidebar_open: &mut bool,
-    selected_backend_idx: &mut usize,
-) {
-    let state = shared.read();
+/// Chat header view with backend selector and sidebar toggle.
+pub struct HeaderView {
+    shared: SharedState,
+    tx: mpsc::UnboundedSender<Action>,
+    pub sidebar_open: bool,
+    pub selected_backend_idx: usize,
+}
 
-    let active_sid = state.active_session_id.clone();
-    let session = match state.sessions.get(&active_sid) {
-        Some(s) => s,
-        None => return,
-    };
-    let current_backend = session.backend_id.clone();
-
-    let found_backends: Vec<(String, String)> = state
-        .backend_registry
-        .iter()
-        .filter(|b| b.discovery_state == DiscoveryState::Found)
-        .map(|b| (b.backend_id.clone(), b.display_name.clone()))
-        .collect();
-
-    if let Some(pos) = found_backends.iter().position(|(id, _)| id == &current_backend) {
-        *selected_backend_idx = pos;
+impl HeaderView {
+    pub fn new(shared: SharedState, tx: mpsc::UnboundedSender<Action>) -> Self {
+        Self {
+            shared,
+            tx,
+            sidebar_open: true,
+            selected_backend_idx: 0,
+        }
     }
+}
 
-    drop(state);
+impl View for HeaderView {
+    fn body(&mut self, ui: &mut egui::Ui) {
+        let state = self.shared.read();
 
-    HStack::new().show(ui, |ui| {
-        Spacer::fixed(8.0).show(ui);
+        let active_sid = state.active_session_id.clone();
+        let session = match state.sessions.get(&active_sid) {
+            Some(s) => s,
+            None => return,
+        };
+        let current_backend = session.backend_id.clone();
 
-        if !*sidebar_open {
-            if Button::new(icons::HAMBURGER)
-                .style(ButtonStyle::Borderless)
-                .small(true)
-                .show(ui)
-                .clicked()
-            {
-                *sidebar_open = true;
+        let found_backends: Vec<(String, String)> = state
+            .backend_registry
+            .iter()
+            .filter(|b| b.discovery_state == DiscoveryState::Found)
+            .map(|b| (b.backend_id.clone(), b.display_name.clone()))
+            .collect();
+
+        if let Some(pos) = found_backends
+            .iter()
+            .position(|(id, _)| id == &current_backend)
+        {
+            self.selected_backend_idx = pos;
+        }
+
+        drop(state);
+
+        HStack::new().show(ui, |ui| {
+            Spacer::fixed(8.0).show(ui);
+
+            if !self.sidebar_open {
+                if Button::new(icons::HAMBURGER)
+                    .style(ButtonStyle::Borderless)
+                    .small(true)
+                    .show(ui)
+                    .clicked()
+                {
+                    self.sidebar_open = true;
+                }
+                Spacer::fixed(4.0).show(ui);
             }
-            Spacer::fixed(4.0).show(ui);
-        }
 
-        if found_backends.len() >= 2 {
-            ui.with_layout(
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| {
-                    let labels: Vec<&str> =
-                        found_backends.iter().map(|(_, n)| n.as_str()).collect();
-                    let prev = *selected_backend_idx;
-                    SegmentedControl::new(&labels, selected_backend_idx).show(ui);
-                    if *selected_backend_idx != prev {
-                        if let Some((id, _)) = found_backends.get(*selected_backend_idx) {
-                            let _ = tx.send(Action::SwitchBackend {
-                                backend_id: id.clone(),
-                            });
+            if found_backends.len() >= 2 {
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        let labels: Vec<&str> =
+                            found_backends.iter().map(|(_, n)| n.as_str()).collect();
+                        let prev = self.selected_backend_idx;
+                        SegmentedControl::new(&labels, &mut self.selected_backend_idx)
+                            .show(ui);
+                        if self.selected_backend_idx != prev {
+                            if let Some((id, _)) =
+                                found_backends.get(self.selected_backend_idx)
+                            {
+                                let _ = self.tx.send(Action::SwitchBackend {
+                                    backend_id: id.clone(),
+                                });
+                            }
                         }
-                    }
-                },
-            );
-        } else if found_backends.len() == 1 {
-            ui.with_layout(
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| {
-                    Label::new(&found_backends[0].1)
-                        .font(Font::Callout)
-                        .secondary()
-                        .show(ui);
-                },
-            );
-        } else {
-            ui.with_layout(
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| {
-                    Label::new("No backends detected")
-                        .font(Font::Callout)
-                        .muted()
-                        .show(ui);
-                },
-            );
-        }
+                    },
+                );
+            } else if found_backends.len() == 1 {
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        Label::new(&found_backends[0].1)
+                            .font(Font::Callout)
+                            .secondary()
+                            .show(ui);
+                    },
+                );
+            } else {
+                ui.with_layout(
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| {
+                        Label::new("No backends detected")
+                            .font(Font::Callout)
+                            .muted()
+                            .show(ui);
+                    },
+                );
+            }
 
-        Spacer::fixed(8.0).show(ui);
-    });
+            Spacer::fixed(8.0).show(ui);
+        });
+    }
 }

@@ -135,8 +135,8 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
     }
 
     // -- Tool cards --
-    for card in &msg.tool_cards {
-        render_tool_card(ui, card);
+    for (idx, card) in msg.tool_cards.iter().enumerate() {
+        render_tool_card(ui, card, &msg.id, idx);
         Spacer::fixed(6.0).show(ui);
     }
 
@@ -203,7 +203,7 @@ fn render_error_message(ui: &mut egui::Ui, msg: &Message) {
         });
 }
 
-fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
+fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, msg_id: &str, idx: usize) {
     let p = ui.palette();
     let (status_icon, status_color) = match card.phase {
         ToolPhase::Started => (icons::CIRCLE_FILLED, p.status_yellow),
@@ -211,18 +211,19 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
         ToolPhase::Failed => (icons::XMARK, p.status_red),
     };
 
+    // Unique ID: message UUID + sequential index — guaranteed no collisions.
+    let uid = format!("tc_{msg_id}_{idx}");
+
     Card::new()
         .padding(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
-            // Use timestamp to make each tool card's collapsing header unique.
-            let unique_id = format!("tool_{}_{}", card.tool_name, card.timestamp.timestamp_millis());
             egui::CollapsingHeader::new(
                 egui::RichText::new(format!("{status_icon}  {}", card.tool_name))
                     .size(Font::Subheadline.size())
                     .monospace()
                     .color(status_color),
             )
-            .id_salt(&unique_id)
+            .id_salt(&uid)
             .default_open(false)
             .show(ui, |ui| {
                 for (key, value) in &card.arguments {

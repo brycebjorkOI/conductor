@@ -1,7 +1,7 @@
 //! Global egui style overrides for a macOS / SwiftUI-native look.
 //!
 //! Call [`apply_macos_style`] once at app startup to set corner radii,
-//! spacing, and selection colors that match macOS Sonoma conventions.
+//! spacing, selection colors, and load Inter + JetBrains Mono fonts.
 
 use egui::Color32;
 
@@ -25,8 +25,63 @@ impl Layout {
     pub const NAV_ROW_HEIGHT: f32 = 32.0;
 }
 
+// Embedded font data (Inter for proportional, JetBrains Mono for monospace).
+// Inter: SIL Open Font License. JetBrains Mono: SIL Open Font License.
+const INTER_REGULAR: &[u8] = include_bytes!("../fonts/Inter-Regular.ttf");
+const INTER_BOLD: &[u8] = include_bytes!("../fonts/Inter-Bold.ttf");
+const JETBRAINS_MONO: &[u8] = include_bytes!("../fonts/JetBrainsMono-Regular.ttf");
+
 /// Apply the macOS / SwiftUI-inspired style to an egui context.
+///
+/// This sets:
+/// - **Inter** as the proportional font (close match for SF Pro)
+/// - **JetBrains Mono** as the monospace font
+/// - Rounded corner radii, generous spacing, subtle widget backgrounds
+///
+/// Call once at app startup, e.g. in `eframe::CreationContext`.
 pub fn apply_macos_style(ctx: &egui::Context) {
+    // -- Fonts --
+    let mut fonts = egui::FontDefinitions::default();
+
+    // Insert Inter Regular as the primary proportional font.
+    fonts.font_data.insert(
+        "Inter-Regular".to_owned(),
+        egui::FontData::from_static(INTER_REGULAR).into(),
+    );
+    // Insert Inter Bold.
+    fonts.font_data.insert(
+        "Inter-Bold".to_owned(),
+        egui::FontData::from_static(INTER_BOLD).into(),
+    );
+    // Insert JetBrains Mono as the primary monospace font.
+    fonts.font_data.insert(
+        "JetBrainsMono".to_owned(),
+        egui::FontData::from_static(JETBRAINS_MONO).into(),
+    );
+
+    // Set Inter as the first proportional font (before the egui defaults as fallback).
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, "Inter-Regular".to_owned());
+
+    // Register Inter Bold as a custom "Bold" family for true bold weight.
+    fonts.families.insert(
+        egui::FontFamily::Name("Bold".into()),
+        vec!["Inter-Bold".to_owned(), "Inter-Regular".to_owned()],
+    );
+
+    // Set JetBrains Mono as the first monospace font.
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .insert(0, "JetBrainsMono".to_owned());
+
+    ctx.set_fonts(fonts);
+
+    // -- Style --
     let mut style = (*ctx.style()).clone();
 
     style.spacing.item_spacing = egui::vec2(8.0, 4.0);

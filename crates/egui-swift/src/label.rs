@@ -128,18 +128,24 @@ impl<'a> Label<'a> {
 
         let is_bold = self.bold.unwrap_or_else(|| self.font.is_bold());
 
+        let font_id = if self.monospace {
+            egui::FontId::monospace(self.font.size())
+        } else if is_bold {
+            // Use the real Inter Bold font family registered by apply_macos_style.
+            egui::FontId::new(
+                self.font.size(),
+                egui::FontFamily::Name("Bold".into()),
+            )
+        } else {
+            egui::FontId::proportional(self.font.size())
+        };
+
         let mut rt = egui::RichText::new(self.text)
-            .size(self.font.size())
+            .font(font_id)
             .color(resolved_color);
 
-        if is_bold {
-            rt = rt.strong();
-        }
         if self.italic {
             rt = rt.italics();
-        }
-        if self.monospace {
-            rt = rt.monospace();
         }
 
         ui.label(rt)
