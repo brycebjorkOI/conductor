@@ -1,8 +1,0 @@
-[package]
-name = "conductor-ui"
-version.workspace = true
-edition.workspace = true
-description = "Reusable SwiftUI-style egui components for Conductor"
-
-[dependencies]
-egui = "0.31"

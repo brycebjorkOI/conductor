@@ -1,0 +1,8 @@
+[package]
+name = "egui-swift"
+version.workspace = true
+edition.workspace = true
+description = "A generic SwiftUI-style UI framework built on top of egui"
+
+[dependencies]
+egui = "0.31"

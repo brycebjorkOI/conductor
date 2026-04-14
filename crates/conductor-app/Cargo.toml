@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 conductor-core = { path = "../conductor-core" }
-conductor-ui = { path = "../conductor-ui" }
+egui-swift = { path = "../egui-swift" }
 
 eframe = { version = "0.31", default-features = false, features = [
     "default_fonts",

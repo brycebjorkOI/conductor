@@ -4,7 +4,7 @@ use conductor_core::config;
 use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::AppState;
-use conductor_ui::suggestion_chip;
+use egui_swift::suggestion_chip;
 
 use crate::bridge::SharedState;
 use crate::runtime::RuntimeHandle;
@@ -20,11 +20,12 @@ pub struct ConductorApp {
     sidebar_open: bool,
     sidebar_state: ui::sidebar::SidebarState,
     selected_backend_idx: usize,
+    schedules_state: ui::settings::schedules::SchedulesTabState,
 }
 
 impl ConductorApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        Theme::apply(&cc.egui_ctx);
+        crate::theme::apply(&cc.egui_ctx);
 
         let config_path = config::config_file_path();
         let cfg = config::load_config(&config_path);
@@ -51,6 +52,7 @@ impl ConductorApp {
             sidebar_open: true,
             sidebar_state: ui::sidebar::SidebarState::default(),
             selected_backend_idx: 0,
+            schedules_state: ui::settings::schedules::SchedulesTabState::default(),
         }
     }
 }
@@ -59,9 +61,9 @@ impl eframe::App for ConductorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let dark = ctx.style().visuals.dark_mode;
         let p = if dark {
-            conductor_ui::colors::dark()
+            egui_swift::colors::dark()
         } else {
-            conductor_ui::colors::light()
+            egui_swift::colors::light()
         };
 
         // Settings view.
@@ -69,14 +71,14 @@ impl eframe::App for ConductorApp {
             let state = self.shared.read();
             if state.settings_open {
                 drop(state);
-                ui::settings::show(ctx, &self.shared, &self.action_tx);
+                ui::settings::show(ctx, &self.shared, &self.action_tx, &mut self.schedules_state);
                 return;
             }
         }
 
-        // -- Sidebar (using conductor-ui SidebarPanel) --
+        // -- Sidebar (using egui-swift SidebarPanel) --
         if self.sidebar_open {
-            conductor_ui::sidebar::SidebarPanel::new()
+            egui_swift::sidebar::SidebarPanel::new()
                 .width(Theme::SIDEBAR_WIDTH)
                 .show(ctx, |ui| {
                     ui::sidebar::show(
@@ -194,7 +196,7 @@ impl eframe::App for ConductorApp {
 
                         ui.add_space(16.0);
 
-                        // Suggestion chips (using conductor-ui).
+                        // Suggestion chips (using egui-swift).
                         ui.vertical_centered(|ui| {
                             suggestion_chip::chip_row(
                                 ui,

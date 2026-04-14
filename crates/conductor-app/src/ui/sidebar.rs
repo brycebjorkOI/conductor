@@ -3,11 +3,11 @@ use tokio::sync::mpsc;
 use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::SettingsTab;
-use conductor_ui::conversation_item::ConversationItem;
-use conductor_ui::nav_row::NavRow;
-use conductor_ui::search_field::SearchField;
-use conductor_ui::section_header::SectionHeader;
-use conductor_ui::user_profile::UserProfile;
+use egui_swift::conversation_item::ConversationItem;
+use egui_swift::nav_row::NavRow;
+use egui_swift::search_field::SearchField;
+use egui_swift::section_header::SectionHeader;
+use egui_swift::user_profile::UserProfile;
 
 use crate::bridge::SharedState;
 

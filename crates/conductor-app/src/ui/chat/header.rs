@@ -2,7 +2,7 @@ use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
 use conductor_core::state::*;
-use conductor_ui::segmented_control::SegmentedControl;
+use egui_swift::segmented_control::SegmentedControl;
 
 use crate::bridge::SharedState;
 
@@ -13,7 +13,7 @@ pub fn show(
     sidebar_open: &mut bool,
     selected_backend_idx: &mut usize,
 ) {
-    let p = conductor_ui::colors::palette(ui);
+    let p = egui_swift::colors::palette(ui);
     let state = shared.read();
 
     let active_sid = state.active_session_id.clone();

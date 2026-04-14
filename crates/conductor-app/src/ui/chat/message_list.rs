@@ -1,9 +1,8 @@
 use conductor_core::state::*;
-use crate::theme::Theme;
+use egui_swift::colors;
+use egui_swift::theme::Layout;
 
 pub fn show(ui: &mut egui::Ui, session: &Session) {
-    let dark = ui.visuals().dark_mode;
-
     let is_streaming = session
         .streaming
         .as_ref()
@@ -14,7 +13,7 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
         .stick_to_bottom(is_streaming || !session.messages.is_empty())
         .show(ui, |ui| {
             let available_width = ui.available_width();
-            let content_width = available_width.min(Theme::MAX_CONTENT_WIDTH);
+            let content_width = available_width.min(Layout::MAX_CONTENT_WIDTH);
             let side_padding = ((available_width - content_width) / 2.0).max(24.0);
 
             ui.horizontal(|ui| {
@@ -23,28 +22,29 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
                     ui.set_max_width(content_width);
 
                     if session.messages.is_empty() {
-                        render_empty_state(ui, dark);
+                        render_empty_state(ui);
                         return;
                     }
 
                     ui.add_space(24.0);
 
                     for msg in &session.messages {
-                        render_message(ui, msg, dark);
-                        ui.add_space(Theme::MESSAGE_SPACING);
+                        render_message(ui, msg);
+                        ui.add_space(Layout::MESSAGE_SPACING);
                     }
 
                     if is_streaming {
+                        let p = colors::palette(ui);
                         let time = ui.input(|i| i.time);
                         let visible = (time * 2.5) as u64 % 2 == 0;
                         if visible {
                             ui.label(
                                 egui::RichText::new("\u{2588}")
-                                    .size(Theme::BODY_FONT_SIZE)
-                                    .color(Theme::accent(dark)),
+                                    .size(Layout::BODY_FONT_SIZE)
+                                    .color(p.accent),
                             );
                         } else {
-                            ui.add_space(Theme::BODY_FONT_SIZE + 4.0);
+                            ui.add_space(Layout::BODY_FONT_SIZE + 4.0);
                         }
                         ui.ctx().request_repaint();
                     }
@@ -56,8 +56,8 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
         });
 }
 
-fn render_empty_state(ui: &mut egui::Ui, dark: bool) {
-    // Claude-style: greeting centered vertically with sparkle to the left.
+fn render_empty_state(ui: &mut egui::Ui) {
+    let p = colors::palette(ui);
     let greeting = {
         let hour = chrono::Local::now().format("%H").to_string().parse::<u32>().unwrap_or(12);
         if hour < 12 {
@@ -69,17 +69,15 @@ fn render_empty_state(ui: &mut egui::Ui, dark: bool) {
         }
     };
 
-    // Push the greeting to roughly the vertical center of the available space.
     let available_height = ui.available_height();
     let top_space = (available_height * 0.30).max(60.0);
     ui.add_space(top_space);
 
-    // Sparkle + greeting centered — use a single RichText label for perfect centering.
     ui.vertical_centered(|ui| {
         ui.label(
             egui::RichText::new(format!("\u{2728}  {greeting}"))
                 .size(26.0)
-                .color(Theme::text_primary(dark)),
+                .color(p.text_primary),
         );
 
         ui.add_space(8.0);
@@ -87,41 +85,42 @@ fn render_empty_state(ui: &mut egui::Ui, dark: bool) {
         ui.label(
             egui::RichText::new("How can I help you today?")
                 .size(14.5)
-                .color(Theme::text_muted(dark)),
+                .color(p.text_muted),
         );
     });
 }
 
-fn render_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
+fn render_message(ui: &mut egui::Ui, msg: &Message) {
     match msg.role {
-        MessageRole::User => render_user_message(ui, msg, dark),
-        MessageRole::Assistant => render_assistant_message(ui, msg, dark),
-        MessageRole::System => render_system_message(ui, msg, dark),
-        MessageRole::Error => render_error_message(ui, msg, dark),
+        MessageRole::User => render_user_message(ui, msg),
+        MessageRole::Assistant => render_assistant_message(ui, msg),
+        MessageRole::System => render_system_message(ui, msg),
+        MessageRole::Error => render_error_message(ui, msg),
     }
 }
 
-fn render_user_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
+fn render_user_message(ui: &mut egui::Ui, msg: &Message) {
+    let p = colors::palette(ui);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
         let frame = egui::Frame::NONE
-            .fill(Theme::user_bubble_bg(dark))
+            .fill(p.user_bubble_bg)
             .corner_radius(egui::CornerRadius {
-                nw: Theme::USER_BUBBLE_RADIUS as u8,
+                nw: Layout::USER_BUBBLE_RADIUS as u8,
                 ne: 4,
-                sw: Theme::USER_BUBBLE_RADIUS as u8,
-                se: Theme::USER_BUBBLE_RADIUS as u8,
+                sw: Layout::USER_BUBBLE_RADIUS as u8,
+                se: Layout::USER_BUBBLE_RADIUS as u8,
             })
             .inner_margin(egui::Margin::symmetric(16, 10));
 
         frame.show(ui, |ui| {
-            ui.set_max_width(Theme::MAX_CONTENT_WIDTH * 0.78);
+            ui.set_max_width(Layout::MAX_CONTENT_WIDTH * 0.78);
             ui.with_layout(
                 egui::Layout::left_to_right(egui::Align::TOP).with_main_wrap(true),
                 |ui| {
                     ui.label(
                         egui::RichText::new(&msg.content)
-                            .size(Theme::BODY_FONT_SIZE)
-                            .color(Theme::user_bubble_text(dark)),
+                            .size(Layout::BODY_FONT_SIZE)
+                            .color(p.text_primary),
                     );
                 },
             );
@@ -129,9 +128,10 @@ fn render_user_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
     });
 }
 
-fn render_assistant_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
+fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
+    let p = colors::palette(ui);
     for card in &msg.tool_cards {
-        render_tool_card(ui, card, dark);
+        render_tool_card(ui, card);
         ui.add_space(6.0);
     }
 
@@ -146,8 +146,8 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
         ui.label(
             egui::RichText::new("Stopped generating")
                 .italics()
-                .size(Theme::SMALL_FONT_SIZE)
-                .color(Theme::text_muted(dark)),
+                .size(Layout::SMALL_FONT_SIZE)
+                .color(p.text_muted),
         );
     }
 
@@ -170,48 +170,51 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
             ui.label(
                 egui::RichText::new(parts.join(" \u{00b7} "))
                     .size(11.0)
-                    .color(Theme::text_muted(dark)),
+                    .color(p.text_muted),
             );
         }
     }
 }
 
-fn render_system_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
+fn render_system_message(ui: &mut egui::Ui, msg: &Message) {
+    let p = colors::palette(ui);
     ui.vertical_centered(|ui| {
         ui.label(
             egui::RichText::new(&msg.content)
-                .size(Theme::SMALL_FONT_SIZE)
+                .size(Layout::SMALL_FONT_SIZE)
                 .italics()
-                .color(Theme::text_muted(dark)),
+                .color(p.text_muted),
         );
     });
 }
 
-fn render_error_message(ui: &mut egui::Ui, msg: &Message, dark: bool) {
+fn render_error_message(ui: &mut egui::Ui, msg: &Message) {
+    let p = colors::palette(ui);
     egui::Frame::NONE
-        .fill(Theme::error_bg(dark))
+        .fill(p.error_bg)
         .corner_radius(egui::CornerRadius::same(12))
         .inner_margin(egui::Margin::symmetric(16, 10))
         .show(ui, |ui| {
-            ui.set_max_width(Theme::MAX_CONTENT_WIDTH);
+            ui.set_max_width(Layout::MAX_CONTENT_WIDTH);
             ui.label(
                 egui::RichText::new(&msg.content)
-                    .size(Theme::BODY_FONT_SIZE)
-                    .color(Theme::status_red()),
+                    .size(Layout::BODY_FONT_SIZE)
+                    .color(p.status_red),
             );
         });
 }
 
-fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, dark: bool) {
+fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
+    let p = colors::palette(ui);
     egui::Frame::NONE
-        .fill(Theme::tool_card_bg(dark))
+        .fill(p.tool_card_bg)
         .corner_radius(egui::CornerRadius::same(8))
         .inner_margin(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
             let (status_icon, status_color) = match card.phase {
-                ToolPhase::Started => ("\u{25cf}", Theme::status_yellow()),
-                ToolPhase::Completed => ("\u{2713}", Theme::status_green()),
-                ToolPhase::Failed => ("\u{2717}", Theme::status_red()),
+                ToolPhase::Started => ("\u{25cf}", p.status_yellow),
+                ToolPhase::Completed => ("\u{2713}", p.status_green),
+                ToolPhase::Failed => ("\u{2717}", p.status_red),
             };
 
             egui::CollapsingHeader::new(
@@ -228,7 +231,7 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, dark: bool) {
                             egui::RichText::new(format!("{key}:"))
                                 .monospace()
                                 .size(11.0)
-                                .color(Theme::text_secondary(dark)),
+                                .color(p.text_secondary),
                         );
                         let val_str = match value {
                             serde_json::Value::String(s) => s.clone(),
@@ -238,7 +241,7 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, dark: bool) {
                             egui::RichText::new(val_str)
                                 .monospace()
                                 .size(11.0)
-                                .color(Theme::text_primary(dark)),
+                                .color(p.text_primary),
                         );
                     });
                 }
@@ -250,7 +253,7 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, dark: bool) {
                         egui::RichText::new(result)
                             .monospace()
                             .size(11.0)
-                            .color(Theme::text_secondary(dark)),
+                            .color(p.text_secondary),
                     );
                 }
             });

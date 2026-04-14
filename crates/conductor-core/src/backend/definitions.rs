@@ -414,3 +414,66 @@ impl BackendDefinition for AwsQBackend {
     }
     fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
 }
+
+// ---------------------------------------------------------------------------
+// Generic / User-Defined Backend
+// ---------------------------------------------------------------------------
+
+/// A backend configured entirely from user-provided settings.
+/// Supports template placeholders: `{message}`, `{model}`, `{extra_args}`.
+pub struct GenericBackend {
+    pub id: String,
+    pub name: String,
+    pub binary: String,
+    pub version_cmd: Option<Vec<String>>,
+    pub auth_cmd: Option<Vec<String>>,
+    pub chat_template: Vec<String>,
+    pub default_model: Option<String>,
+    pub models: Vec<ModelEntry>,
+    pub caps: CapabilitySet,
+}
+
+impl GenericBackend {
+    pub fn from_config(id: &str, name: &str, binary: &str, chat_template: &[String]) -> Self {
+        Self {
+            id: id.to_string(),
+            name: name.to_string(),
+            binary: binary.to_string(),
+            version_cmd: None,
+            auth_cmd: None,
+            chat_template: chat_template.to_vec(),
+            default_model: None,
+            models: Vec::new(),
+            caps: CapabilitySet::default(),
+        }
+    }
+}
+
+impl BackendDefinition for GenericBackend {
+    fn backend_id(&self) -> &str { &self.id }
+    fn display_name(&self) -> &str { &self.name }
+    fn binary_name(&self) -> &str { &self.binary }
+    fn version_command(&self) -> Vec<String> {
+        self.version_cmd.clone().unwrap_or_else(|| vec![self.binary.clone(), "--version".into()])
+    }
+    fn auth_check_command(&self) -> Option<Vec<String>> { self.auth_cmd.clone() }
+    fn model_list_command(&self) -> Option<Vec<String>> { None }
+    fn parse_version(&self, stdout: &str, _: i32) -> Option<String> {
+        stdout.split_whitespace().last().map(|s| s.to_string())
+    }
+    fn parse_auth(&self, _: &str, _: &str, exit_code: i32) -> AuthState {
+        if exit_code == 0 { AuthState::Authenticated } else { AuthState::Unknown }
+    }
+    fn parse_models(&self, _: &str) -> Vec<ModelEntry> { Vec::new() }
+    fn capabilities(&self) -> CapabilitySet { self.caps.clone() }
+    fn static_models(&self) -> Vec<ModelEntry> { self.models.clone() }
+    fn build_chat_command(&self, binary_path: &PathBuf, params: &ChatParams) -> CliCommand {
+        let args: Vec<String> = self.chat_template.iter().map(|t| {
+            t.replace("{message}", &params.message)
+                .replace("{model}", params.model.as_deref().unwrap_or(""))
+                .replace("{extra_args}", &params.extra_args.join(" "))
+        }).collect();
+        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None }
+    }
+    fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
+}

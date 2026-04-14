@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use conductor_core::commands;
 use conductor_core::events::Action;
 use conductor_core::state::SessionId;
-use conductor_ui::chat_input::ChatInput;
+use egui_swift::chat_input::ChatInput;
 
 use crate::theme::Theme;
 
@@ -15,7 +15,7 @@ pub fn show(
     active_session_id: &SessionId,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    let p = conductor_ui::colors::palette(ui);
+    let p = egui_swift::colors::palette(ui);
 
     // Autocomplete popup (rendered above the input).
     if *show_autocomplete && input_text.starts_with('/') {

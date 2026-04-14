@@ -29,10 +29,28 @@ pub struct Palette {
     // Accent
     pub accent: Color32,
     pub accent_bg: Color32,
+    pub accent_subtle: Color32,
 
     // Status
     pub status_green: Color32,
+    pub status_yellow: Color32,
     pub status_red: Color32,
+
+    // Semantic
+    pub destructive: Color32,
+    pub toggle_on: Color32,
+    pub toggle_off: Color32,
+
+    // Card / container
+    pub card_bg: Color32,
+    pub divider: Color32,
+    pub shadow: Color32,
+    pub overlay_bg: Color32,
+
+    // Message-specific (app can use these for chat bubbles, errors, tool cards)
+    pub user_bubble_bg: Color32,
+    pub error_bg: Color32,
+    pub tool_card_bg: Color32,
 
     // Interactive states
     pub hover_bg: Color32,
@@ -40,7 +58,7 @@ pub struct Palette {
     pub active_indicator: Color32,
 }
 
-/// Dark-mode palette (matches the McClaw/Claude dark screenshot).
+/// Dark-mode palette.
 pub fn dark() -> Palette {
     Palette {
         sidebar_bg: Color32::from_rgb(30, 30, 30),
@@ -59,9 +77,24 @@ pub fn dark() -> Palette {
 
         accent: Color32::from_rgb(80, 130, 220),
         accent_bg: Color32::from_rgb(35, 55, 90),
+        accent_subtle: Color32::from_rgb(60, 45, 35),
 
         status_green: Color32::from_rgb(80, 200, 120),
+        status_yellow: Color32::from_rgb(210, 170, 50),
         status_red: Color32::from_rgb(220, 70, 70),
+
+        destructive: Color32::from_rgb(220, 70, 70),
+        toggle_on: Color32::from_rgb(52, 199, 89),
+        toggle_off: Color32::from_rgb(120, 120, 128),
+
+        card_bg: Color32::from_rgb(48, 48, 48),
+        divider: Color32::from_rgb(55, 55, 55),
+        shadow: Color32::from_rgba_premultiplied(0, 0, 0, 60),
+        overlay_bg: Color32::from_rgba_premultiplied(0, 0, 0, 120),
+
+        user_bubble_bg: Color32::from_rgb(60, 60, 60),
+        error_bg: Color32::from_rgb(60, 30, 30),
+        tool_card_bg: Color32::from_rgb(38, 38, 38),
 
         hover_bg: Color32::from_rgb(45, 45, 48),
         active_bg: Color32::from_rgb(40, 52, 70),
@@ -88,9 +121,24 @@ pub fn light() -> Palette {
 
         accent: Color32::from_rgb(50, 110, 210),
         accent_bg: Color32::from_rgb(225, 237, 255),
+        accent_subtle: Color32::from_rgb(252, 243, 234),
 
         status_green: Color32::from_rgb(60, 180, 90),
+        status_yellow: Color32::from_rgb(210, 170, 50),
         status_red: Color32::from_rgb(210, 60, 60),
+
+        destructive: Color32::from_rgb(210, 60, 60),
+        toggle_on: Color32::from_rgb(52, 199, 89),
+        toggle_off: Color32::from_rgb(174, 174, 178),
+
+        card_bg: Color32::WHITE,
+        divider: Color32::from_rgb(230, 228, 224),
+        shadow: Color32::from_rgba_premultiplied(0, 0, 0, 20),
+        overlay_bg: Color32::from_rgba_premultiplied(0, 0, 0, 80),
+
+        user_bubble_bg: Color32::from_rgb(238, 237, 234),
+        error_bg: Color32::from_rgb(254, 236, 236),
+        tool_card_bg: Color32::from_rgb(247, 246, 243),
 
         hover_bg: Color32::from_rgb(233, 231, 228),
         active_bg: Color32::from_rgb(225, 235, 250),
@@ -101,6 +149,15 @@ pub fn light() -> Palette {
 /// Return the appropriate palette for the current visuals.
 pub fn palette(ui: &egui::Ui) -> Palette {
     if ui.visuals().dark_mode {
+        dark()
+    } else {
+        light()
+    }
+}
+
+/// Return the palette from an egui context (useful outside a Ui scope).
+pub fn palette_from_ctx(ctx: &egui::Context) -> Palette {
+    if ctx.style().visuals.dark_mode {
         dark()
     } else {
         light()

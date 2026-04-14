@@ -39,6 +39,172 @@ impl RuntimeHandle {
             run_backend_scan(shared_scan).await;
         });
 
+        // Load persisted jobs and start the scheduler loop.
+        let shared_sched = shared.clone();
+        let tx_sched = action_tx.clone();
+        runtime.spawn(async move {
+            use conductor_core::scheduler::{pty, persistence};
+
+            // Load persisted jobs.
+            let saved_jobs = persistence::load_jobs();
+            if !saved_jobs.is_empty() {
+                tracing::info!("restored {} scheduled jobs", saved_jobs.len());
+                shared_sched.mutate(|s| {
+                    s.scheduler.jobs = saved_jobs;
+                    let now = chrono::Utc::now();
+                    for job in &mut s.scheduler.jobs {
+                        job.next_run = conductor_core::scheduler::compute_next_run(job, now);
+                    }
+                });
+            }
+
+            // Restore PTY sessions from previous run.
+            let pty_manager = pty::PtyManager::new();
+            let saved_pty = persistence::load_pty_sessions();
+            for record in &saved_pty {
+                let backend_path = {
+                    let state = shared_sched.read();
+                    state.backend_registry.iter()
+                        .find(|b| b.backend_id == record.backend_id)
+                        .and_then(|b| b.binary_path.clone())
+                };
+                match backend_path {
+                    Some(path) => {
+                        match pty_manager.spawn_session(
+                            &record.job_id,
+                            &record.backend_id,
+                            &path,
+                            &record.last_command,
+                        ).await {
+                            Ok(()) => {
+                                tracing::info!("restored PTY session for job {}", record.job_id);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "failed to restore PTY session for job {}: {e} — falling back to local scheduler",
+                                    record.job_id
+                                );
+                                // Add a notification for the user.
+                                shared_sched.mutate(|s| {
+                                    s.notifications.push(conductor_core::state::Notification {
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        title: "PTY Session Restore Failed".into(),
+                                        body: format!(
+                                            "Job '{}' could not restore its PTY session: {e}. Using local scheduler instead.",
+                                            record.job_id
+                                        ),
+                                        severity: conductor_core::state::NotificationSeverity::Warning,
+                                        timestamp: chrono::Utc::now(),
+                                        dismissed: false,
+                                    });
+                                });
+                            }
+                        }
+                    }
+                    None => {
+                        tracing::warn!(
+                            "cannot restore PTY for job {}: backend '{}' binary not found — falling back to local scheduler",
+                            record.job_id, record.backend_id
+                        );
+                    }
+                }
+            }
+            persistence::clear_pty_sessions();
+
+            // Scheduler loop: evaluate triggers every 30 seconds.
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                let now = chrono::Utc::now();
+
+                // Check for expired PTY sessions and renew them.
+                let to_renew = pty_manager.renew_expired_sessions().await;
+                for (job_id, backend_id, command) in to_renew {
+                    let backend_path = {
+                        let state = shared_sched.read();
+                        state.backend_registry.iter()
+                            .find(|b| b.backend_id == backend_id)
+                            .and_then(|b| b.binary_path.clone())
+                    };
+                    if let Some(path) = backend_path {
+                        let _ = pty_manager.spawn_session(&job_id, &backend_id, &path, &command).await;
+                    }
+                }
+
+                // Evaluate triggers.
+                let triggered = {
+                    let state = shared_sched.read();
+                    conductor_core::scheduler::evaluate_triggers(&state.scheduler.jobs, now)
+                };
+                for job_id in triggered {
+                    // Determine whether to use PTY or local scheduler path.
+                    let use_pty = {
+                        let state = shared_sched.read();
+                        state.scheduler.jobs.iter()
+                            .find(|j| j.job_id == job_id)
+                            .and_then(|j| {
+                                let bid = j.payload.backend_override.as_deref()
+                                    .unwrap_or(state.default_backend_id.as_deref().unwrap_or(""));
+                                Some(pty::should_use_pty(bid, &state.backend_registry))
+                            })
+                            .unwrap_or(false)
+                    };
+
+                    if use_pty && !pty_manager.has_session(&job_id).await {
+                        // Spawn a PTY session for this job.
+                        let (backend_id, prompt, interval) = {
+                            let state = shared_sched.read();
+                            let job = state.scheduler.jobs.iter().find(|j| j.job_id == job_id);
+                            match job {
+                                Some(j) => {
+                                    let bid = j.payload.backend_override.clone()
+                                        .unwrap_or_else(|| state.default_backend_id.clone().unwrap_or_default());
+                                    let interval = match &j.schedule {
+                                        conductor_core::state::ScheduleDefinition::Interval { seconds } => *seconds,
+                                        _ => 3600,
+                                    };
+                                    (bid, j.payload.prompt.clone(), interval)
+                                }
+                                None => continue,
+                            }
+                        };
+
+                        if let Some(cmd) = pty::build_pty_command(&backend_id, interval, &prompt) {
+                            let backend_path = {
+                                let state = shared_sched.read();
+                                state.backend_registry.iter()
+                                    .find(|b| b.backend_id == backend_id)
+                                    .and_then(|b| b.binary_path.clone())
+                            };
+                            if let Some(path) = backend_path {
+                                if let Err(e) = pty_manager.spawn_session(&job_id, &backend_id, &path, &cmd).await {
+                                    tracing::warn!("PTY spawn failed for {job_id}: {e}, falling back to local");
+                                    let _ = tx_sched.send(Action::RunJobNow { job_id });
+                                } else {
+                                    tracing::info!("PTY session started for job {job_id}");
+                                }
+                            } else {
+                                let _ = tx_sched.send(Action::RunJobNow { job_id });
+                            }
+                        } else {
+                            // Backend doesn't have a known PTY command, fall back to local.
+                            let _ = tx_sched.send(Action::RunJobNow { job_id });
+                        }
+                    } else if !use_pty {
+                        // Local scheduler path.
+                        tracing::info!("scheduler triggered job (local path): {job_id}");
+                        let _ = tx_sched.send(Action::RunJobNow { job_id });
+                    }
+                    // If use_pty && has_session, the PTY session is already handling it.
+                }
+
+                // Periodically save PTY session state for crash recovery.
+                let records = pty_manager.get_persistence_data().await;
+                if !records.is_empty() {
+                    let _ = persistence::save_pty_sessions(&records);
+                }
+            }
+        });
+
         Self {
             action_tx,
             _runtime: runtime,
@@ -343,11 +509,112 @@ async fn dispatcher(
                 std::process::exit(0);
             }
 
+            // -- Scheduling actions --
+            Action::CreateJob { definition } => {
+                shared.mutate(|s| {
+                    s.scheduler.jobs.push(definition);
+                });
+                persist_jobs(&shared);
+            }
+
+            Action::DeleteJob { job_id } => {
+                shared.mutate(|s| {
+                    s.scheduler.jobs.retain(|j| j.job_id != job_id);
+                });
+                persist_jobs(&shared);
+            }
+
+            Action::ToggleJob { job_id, enabled } => {
+                shared.mutate(|s| {
+                    if let Some(job) = s.scheduler.jobs.iter_mut().find(|j| j.job_id == job_id) {
+                        job.enabled = enabled;
+                    }
+                });
+                persist_jobs(&shared);
+            }
+
+            Action::RunJobNow { job_id } => {
+                let shared_run = shared.clone();
+                tokio::spawn(async move {
+                    run_job_now(shared_run, job_id).await;
+                });
+            }
+
             _ => {
                 tracing::debug!("unhandled action: {:?}", std::mem::discriminant(&action));
             }
         }
     }
+}
+
+fn persist_jobs(shared: &SharedState) {
+    let jobs = shared.read().scheduler.jobs.clone();
+    if let Err(e) = conductor_core::scheduler::persistence::save_jobs(&jobs) {
+        tracing::error!("failed to persist jobs: {e}");
+    }
+}
+
+async fn run_job_now(shared: SharedState, job_id: String) {
+    let (job, registry, fallback, default_backend) = {
+        let state = shared.read();
+        let job = state.scheduler.jobs.iter().find(|j| j.job_id == job_id).cloned();
+        let registry = state.backend_registry.clone();
+        let fallback = state.fallback_order.clone();
+        let default = state.default_backend_id.clone().unwrap_or_else(|| "anthropic".into());
+        (job, registry, fallback, default)
+    };
+
+    let Some(job) = job else {
+        tracing::warn!("RunJobNow: job {job_id} not found");
+        return;
+    };
+
+    tracing::info!("running job '{}' now", job.name);
+
+    // Mark a run as started.
+    let run = conductor_core::scheduler::new_job_run();
+    let run_id = run.run_id.clone();
+    shared.mutate(|s| {
+        if let Some(j) = s.scheduler.jobs.iter_mut().find(|j| j.job_id == job_id) {
+            j.history.push(run.clone());
+        }
+    });
+
+    // Query connector data bindings (if any are configured on the job payload).
+    // In the future, this would call real connector APIs. For now, it's a
+    // placeholder that logs what would be fetched.
+    let connector_data: Option<String> = None;
+    // TODO: When connector runtime is wired, iterate job.payload connector
+    // bindings and call the appropriate fetch actions, collecting results.
+
+    // Execute (with connector data injected into the prompt if available).
+    let completed_run = conductor_core::scheduler::execute_job(
+        &job,
+        &registry,
+        &fallback,
+        &default_backend,
+        connector_data.as_deref(),
+    )
+    .await;
+
+    // Deliver result.
+    if let Some(ref summary) = completed_run.output_summary {
+        conductor_core::scheduler::deliver_result(&job.delivery, summary).await;
+    }
+
+    // Update the run in history.
+    shared.mutate(|s| {
+        if let Some(j) = s.scheduler.jobs.iter_mut().find(|j| j.job_id == job_id) {
+            if let Some(r) = j.history.iter_mut().find(|r| r.run_id == run_id) {
+                *r = completed_run.clone();
+            }
+            // Recompute next_run.
+            j.next_run = conductor_core::scheduler::compute_next_run(j, chrono::Utc::now());
+        }
+    });
+
+    persist_jobs(&shared);
+    tracing::info!("job '{}' completed with status {:?}", job.name, completed_run.status);
 }
 
 fn handle_session_command(shared: &SharedState, session_id: &str, cmd: SessionCommand) {
