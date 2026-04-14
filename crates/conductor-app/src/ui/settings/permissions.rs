@@ -11,12 +11,12 @@ pub fn show(
     tx: &mpsc::UnboundedSender<Action>,
 ) {
     Label::heading("Permissions").show(ui);
-    ui.add_space(16.0);
+    Spacer::fixed(16.0).show(ui);
 
     let mut config = shared.read().config.clone();
     let mut changed = false;
 
-    FormSection::new()
+    Section::new()
         .header("Execution Approval Mode")
         .show(ui, |ui| {
             let modes: Vec<(String, &str)> = vec![
@@ -35,9 +35,9 @@ pub fn show(
             changed = true;
         });
 
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
-    FormSection::new().header("Allowlist Rules").show(ui, |ui| {
+    Section::new().header("Allowlist Rules").show(ui, |ui| {
         if config.security.allow_rules.is_empty() {
             Label::new("No rules configured.")
                 .font(Font::Subheadline)
@@ -46,19 +46,21 @@ pub fn show(
         } else {
             let mut to_remove = None;
             for (i, rule) in config.security.allow_rules.iter().enumerate() {
-                ui.horizontal(|ui| {
+                HStack::new().show(ui, |ui| {
                     Label::new(rule)
                         .font(Font::Subheadline)
                         .monospace(true)
                         .show(ui);
-                    if Button::new("Remove")
-                        .style(ButtonStyle::Destructive)
-                        .small(true)
-                        .show(ui)
-                        .clicked()
-                    {
-                        to_remove = Some(i);
-                    }
+                    Spacer::trailing(ui, |ui| {
+                        if Button::new("Remove")
+                            .style(ButtonStyle::Destructive)
+                            .small(true)
+                            .show(ui)
+                            .clicked()
+                        {
+                            to_remove = Some(i);
+                        }
+                    });
                 });
             }
             if let Some(i) = to_remove {
@@ -67,7 +69,7 @@ pub fn show(
             }
         }
 
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
         Label::new(
             "Format: tool_name glob_pattern (e.g. \"file_read *\", \"shell_exec cargo *\")",
         )

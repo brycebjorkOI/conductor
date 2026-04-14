@@ -49,7 +49,7 @@ impl ScrollView {
         self
     }
 
-    pub fn show(self, ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
+    pub fn show(self, ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) -> egui::Response {
         let mut area = if self.horizontal && self.vertical {
             egui::ScrollArea::both()
         } else if self.horizontal {
@@ -64,8 +64,10 @@ impl ScrollView {
             area = area.stick_to_bottom(true);
         }
 
-        area.show(ui, |ui| {
+        let output = area.show(ui, |ui| {
             content(ui);
         });
+
+        ui.interact(output.inner_rect, ui.auto_id_with("scroll_view"), egui::Sense::hover())
     }
 }

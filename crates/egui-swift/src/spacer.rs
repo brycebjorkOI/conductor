@@ -56,7 +56,12 @@ impl Spacer {
 pub struct FixedSpacer(f32);
 
 impl FixedSpacer {
-    pub fn show(self, ui: &mut egui::Ui) {
+    pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
+        let (_, response) = ui.allocate_exact_size(
+            egui::vec2(0.0, self.0),
+            egui::Sense::hover(),
+        );
         ui.add_space(self.0);
+        response
     }
 }

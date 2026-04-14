@@ -16,11 +16,11 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
                     return;
                 }
 
-                ui.add_space(24.0);
+                Spacer::fixed(24.0).show(ui);
 
                 for msg in &session.messages {
                     render_message(ui, msg);
-                    ui.add_space(Layout::MESSAGE_SPACING);
+                    Spacer::fixed(Layout::MESSAGE_SPACING).show(ui);
                 }
 
                 if is_streaming {
@@ -34,12 +34,12 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
                                 .color(p.accent),
                         );
                     } else {
-                        ui.add_space(Layout::BODY_FONT_SIZE + 4.0);
+                        Spacer::fixed(Layout::BODY_FONT_SIZE + 4.0).show(ui);
                     }
                     ui.ctx().request_repaint();
                 }
 
-                ui.add_space(24.0);
+                Spacer::fixed(24.0).show(ui);
             });
         });
 }
@@ -47,7 +47,7 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
 fn render_empty_state(ui: &mut egui::Ui) {
     let available_height = ui.available_height();
     let top_space = (available_height * 0.30).max(60.0);
-    ui.add_space(top_space);
+    Spacer::fixed(top_space).show(ui);
 
     ui.vertical_centered(|ui| {
         let greeting = {
@@ -69,7 +69,7 @@ fn render_empty_state(ui: &mut egui::Ui) {
             .font(Font::LargeTitle)
             .show(ui);
 
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
 
         Label::new("How can I help you today?")
             .font(Font::Body)
@@ -119,11 +119,11 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
     if let Some(ref thinking) = msg.thinking_content {
         if !thinking.is_empty() {
             render_thinking(ui, &msg.id, thinking, msg.status == MessageStatus::Streaming);
-            ui.add_space(8.0);
+            Spacer::fixed(8.0).show(ui);
         }
     } else if msg.status == MessageStatus::Streaming && msg.content.is_empty() && msg.tool_cards.is_empty() {
         // Streaming but no content yet — show a subtle "thinking" indicator.
-        ui.horizontal(|ui| {
+        HStack::new().show(ui, |ui| {
             ui.spinner();
             Label::new("Thinking...")
                 .font(Font::Subheadline)
@@ -131,13 +131,13 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
                 .muted()
                 .show(ui);
         });
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
     }
 
     // -- Tool cards --
     for card in &msg.tool_cards {
         render_tool_card(ui, card);
-        ui.add_space(6.0);
+        Spacer::fixed(6.0).show(ui);
     }
 
     // -- Response text (Markdown) --
@@ -147,7 +147,7 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
     }
 
     if msg.status == MessageStatus::Cancelled {
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
         Label::new("Stopped generating")
             .font(Font::Subheadline)
             .italic(true)
@@ -156,7 +156,7 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
     }
 
     if let Some(ref usage) = msg.usage {
-        ui.add_space(6.0);
+        Spacer::fixed(6.0).show(ui);
         let mut parts = Vec::new();
         if let Some(input) = usage.input_tokens {
             parts.push(format!("{input} in"));
@@ -226,7 +226,7 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
             .default_open(false)
             .show(ui, |ui| {
                 for (key, value) in &card.arguments {
-                    ui.horizontal(|ui| {
+                    HStack::new().show(ui, |ui| {
                         Label::new(&format!("{key}:"))
                             .font(Font::Caption)
                             .monospace(true)
@@ -243,9 +243,9 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
                     });
                 }
                 if let Some(ref result) = card.result {
-                    ui.add_space(4.0);
+                    Spacer::fixed(4.0).show(ui);
                     Divider::new().show(ui);
-                    ui.add_space(4.0);
+                    Spacer::fixed(4.0).show(ui);
                     Label::new(result)
                         .font(Font::Caption)
                         .monospace(true)
@@ -294,7 +294,7 @@ fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming
 
         for (i, line) in lines.iter().enumerate() {
             let is_last = i == lines.len() - 1;
-            ui.horizontal(|ui| {
+            HStack::new().show(ui, |ui| {
                 // Step indicator.
                 if is_last && !is_streaming {
                     // Final step: checkmark
@@ -324,8 +324,8 @@ fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming
 
             // Connector line between steps (except after the last one).
             if !is_last {
-                ui.horizontal(|ui| {
-                    ui.add_space(7.0); // align with the icon center
+                HStack::new().show(ui, |ui| {
+                    Spacer::fixed(7.0).show(ui); // align with the icon center
                     let (rect, _) = ui.allocate_exact_size(
                         egui::vec2(1.0, 12.0),
                         egui::Sense::hover(),

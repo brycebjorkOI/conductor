@@ -22,8 +22,8 @@ pub fn show(
             let content_width = available_width.min(Layout::MAX_CONTENT_WIDTH);
             let side = ((available_width - content_width) / 2.0).max(20.0);
 
-            ui.horizontal(|ui| {
-                ui.add_space(side);
+            HStack::new().show(ui, |ui| {
+                Spacer::fixed(side).show(ui);
                 Card::new()
                     .padding(egui::Margin::symmetric(8, 4))
                     .show(ui, |ui| {
@@ -42,11 +42,11 @@ pub fn show(
                         }
                     });
             });
-            ui.add_space(4.0);
+            Spacer::fixed(4.0).show(ui);
         }
     }
 
-    ui.add_space(4.0);
+    Spacer::fixed(4.0).show(ui);
 
     let resp = ChatInput::new(input_text)
         .placeholder("Type / for commands")
@@ -76,5 +76,5 @@ pub fn show(
         });
     }
 
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
 }

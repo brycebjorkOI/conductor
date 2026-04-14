@@ -60,9 +60,12 @@ impl<'a> Button<'a> {
 
     pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
-        let font_size = if self.small { 12.0 } else { 14.0 };
+        let font_size = if self.small {
+            crate::typography::Font::Subheadline.size()
+        } else {
+            crate::typography::Font::Body.size()
+        };
         let v_pad = if self.small { 3.0 } else { 6.0 };
-        let h_pad = if self.small { 10.0 } else { 14.0 };
         let rounding = egui::CornerRadius::same(8);
 
         let text = if let Some(icon) = self.icon {
@@ -124,9 +127,6 @@ impl<'a> Button<'a> {
                 _ => {}
             }
         }
-
-        // Suppress unused variable warning.
-        let _ = h_pad;
 
         response
     }

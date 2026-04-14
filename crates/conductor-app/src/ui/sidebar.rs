@@ -51,17 +51,17 @@ pub fn show(
         let _ = tx.send(Action::NewSession);
     }
 
-    ui.add_space(6.0);
+    Spacer::fixed(6.0).show(ui);
 
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
+    HStack::new().show(ui, |ui| {
+        Spacer::fixed(8.0).show(ui);
         ui.scope(|ui| {
             ui.set_width(ui.available_width() - 16.0);
             SearchField::new(&mut sidebar_state.search_query).show(ui);
         });
     });
 
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
 
     if NavRow::new("Chats")
         .icon(icons::SPEECH_BALLOON)
@@ -94,36 +94,34 @@ pub fn show(
         .clicked()
     {}
 
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
     Divider::new().inset(8.0).show(ui);
-    ui.add_space(4.0);
+    Spacer::fixed(4.0).show(ui);
 
     SectionHeader::new("Recent").show(ui);
-    ui.add_space(4.0);
+    Spacer::fixed(4.0).show(ui);
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false; 2])
-        .show(ui, |ui| {
-            let query = sidebar_state.search_query.to_lowercase();
-            for (id, name) in &sessions {
-                if !query.is_empty() && !name.to_lowercase().contains(&query) {
-                    continue;
-                }
-                let is_active = id == &active_sid;
-                if ConversationItem::new(id, name)
-                    .active(is_active)
-                    .show(ui)
-                    .clicked()
-                {
-                    let _ = tx.send(Action::SwitchSession {
-                        session_id: id.clone(),
-                    });
-                }
+    ScrollView::vertical().show(ui, |ui| {
+        let query = sidebar_state.search_query.to_lowercase();
+        for (id, name) in &sessions {
+            if !query.is_empty() && !name.to_lowercase().contains(&query) {
+                continue;
             }
-        });
+            let is_active = id == &active_sid;
+            if ConversationItem::new(id, name)
+                .active(is_active)
+                .show(ui)
+                .clicked()
+            {
+                let _ = tx.send(Action::SwitchSession {
+                    session_id: id.clone(),
+                });
+            }
+        }
+    });
 
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-        ui.add_space(8.0);
+    Spacer::bottom(ui, |ui| {
+        Spacer::fixed(8.0).show(ui);
         let resp = UserProfile::new("User")
             .version(concat!("v", env!("CARGO_PKG_VERSION")))
             .show(ui);
@@ -133,6 +131,6 @@ pub fn show(
             });
         }
         Divider::new().inset(8.0).show(ui);
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
     });
 }

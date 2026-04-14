@@ -10,9 +10,8 @@
 
 use crate::colors;
 
-#[allow(dead_code)]
 pub struct ConversationItem<'a> {
-    id: &'a str,
+    _id: &'a str,
     title: &'a str,
     active: bool,
     max_chars: usize,
@@ -21,7 +20,7 @@ pub struct ConversationItem<'a> {
 impl<'a> ConversationItem<'a> {
     pub fn new(id: &'a str, title: &'a str) -> Self {
         Self {
-            id,
+            _id: id,
             title,
             active: false,
             max_chars: 30,

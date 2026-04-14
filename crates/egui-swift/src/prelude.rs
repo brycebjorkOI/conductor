@@ -7,6 +7,9 @@
 //! This gives you access to all commonly used types — including SwiftUI
 //! compatibility aliases — without individual imports.
 
+// Core trait
+pub use crate::view::View;
+
 // Extension traits (must be in scope to use .palette(), .centered_content(), .opacity())
 pub use crate::ext::{ColorExt, CtxExt, UiExt};
 
@@ -34,6 +37,7 @@ pub use crate::toggle::Toggle;
 
 // Containers
 pub use crate::card::Card;
+pub use crate::form::Form;
 pub use crate::form_row::FormRow;
 pub use crate::form_section::FormSection;
 
@@ -52,7 +56,7 @@ pub use crate::empty_state::{EmptyState, EmptyStateResponse};
 // Layout primitives
 pub use crate::labeled_content::LabeledContent;
 pub use crate::scroll_view::ScrollView;
-pub use crate::spacer::Spacer;
+pub use crate::spacer::{FixedSpacer, Spacer};
 pub use crate::stacks::{HStack, StackExt, VStack};
 
 // Lists & tables
@@ -60,11 +64,13 @@ pub use crate::list::{List, ListStyle};
 
 // Navigation
 pub use crate::navigation_split_view::NavigationSplitView;
+pub use crate::navigation_stack::{NavController, NavPath, NavigationStack};
 pub use crate::tab_view::TabView;
 
 // Advanced
 pub use crate::alert::{Alert, AlertAction};
-pub use crate::progress_indicator::ProgressIndicator;
+pub use crate::context_menu::MenuItem;
+pub use crate::progress_indicator::{ProgressIndicator, ProgressStyle};
 pub use crate::sheet::Sheet;
 pub use crate::toolbar::Toolbar;
 

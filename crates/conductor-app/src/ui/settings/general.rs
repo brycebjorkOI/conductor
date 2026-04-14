@@ -11,13 +11,12 @@ pub fn show(
     tx: &mpsc::UnboundedSender<Action>,
 ) {
     Label::heading("General").show(ui);
-    ui.add_space(16.0);
+    Spacer::fixed(16.0).show(ui);
 
     let mut config = shared.read().config.clone();
     let mut changed = false;
 
-    // -- Connection Mode --
-    FormSection::new().header("Connection Mode").show(ui, |ui| {
+    Section::new().header("Connection Mode").show(ui, |ui| {
         let modes: Vec<(String, &str)> = vec![
             ("standalone".into(), "Standalone"),
             ("local_server".into(), "Local Server"),
@@ -27,10 +26,9 @@ pub fn show(
         changed = true;
     });
 
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
-    // -- Behavior --
-    FormSection::new().header("Behavior").show(ui, |ui| {
+    Section::new().header("Behavior").show(ui, |ui| {
         if Toggle::new(&mut config.general.auto_hide_panel)
             .label("Auto-hide panel on focus loss")
             .show(ui)
@@ -38,7 +36,7 @@ pub fn show(
         {
             changed = true;
         }
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
         if Toggle::new(&mut config.general.launch_at_login)
             .label("Launch at login")
             .show(ui)
@@ -46,7 +44,7 @@ pub fn show(
         {
             changed = true;
         }
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
         if Toggle::new(&mut config.general.check_updates)
             .label("Check for updates")
             .show(ui)
@@ -56,10 +54,9 @@ pub fn show(
         }
     });
 
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
-    // -- Logging --
-    FormSection::new().header("Logging").show(ui, |ui| {
+    Section::new().header("Logging").show(ui, |ui| {
         let levels: Vec<(String, &str)> = vec![
             ("trace".into(), "Trace"),
             ("debug".into(), "Debug"),

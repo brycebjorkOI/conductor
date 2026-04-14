@@ -56,7 +56,9 @@ egui-swift mirrors SwiftUI's API naming so you can think in SwiftUI and write Ru
 | `Stepper(value: $v, in: 1...100)` | `Stepper::new(&mut v, 1.0..=100.0).show(ui)` | `.step(5.0)`, `.label("Count")` |
 | `Section("Header") { }` | `Section::new().header("Header").show(ui, \|ui\| { })` | Also `FormSection::new()` |
 | `GroupBox { }` | `GroupBox::new().show(ui, \|ui\| { })` | Also `Card::new()`. `.border_color()`, `.shadow(true)` |
-| `Form { }` | Wrap `Section`/`FormSection` blocks | |
+| `struct Foo: View { var body }` | `impl View for Foo { fn body(&mut self, ui) { } }` | `.show(ui)` to render |
+| `NavigationStack { NavigationLink }` | `NavigationStack::new(&mut nav).show(ui, \|ui, nav\| { nav.push("id") })` | `NavPath` holds stack |
+| `Form { Section { } }` | `Form::new().show(ui, \|ui\| { Section::new().show(ui, \|ui\| {}) })` | `.max_width(500.0)` |
 | `DisclosureGroup("Title") { }` | `DisclosureGroup::new("Title", &mut open).show(ui, \|ui\| { })` | Animated chevron |
 | `ProgressView()` | `ProgressView::spinner().show(ui)` | Also `ProgressView::bar(0.5).show(ui)` |
 | `ProgressView(value: 0.5)` | `ProgressView::bar(0.5).show(ui)` | Also `ProgressIndicator` |

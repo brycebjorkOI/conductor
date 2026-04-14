@@ -62,7 +62,7 @@ pub fn show(
         });
     });
 
-    ui.add_space(4.0);
+    Spacer::fixed(4.0).show(ui);
     Label::new(&format!(
         "{} job{}",
         jobs.len(),
@@ -71,14 +71,14 @@ pub fn show(
     .font(Font::Subheadline)
     .secondary()
     .show(ui);
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
 
     // -- Add Job form --
     if tab_state.show_add_form {
         show_add_form(ui, tx, tab_state, &p);
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
         Divider::new().show(ui);
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
     }
 
     // -- Job list --
@@ -99,25 +99,23 @@ fn show_add_form(
     ui: &mut egui::Ui,
     tx: &mpsc::UnboundedSender<Action>,
     tab_state: &mut SchedulesTabState,
-    p: &Palette,
+    _p: &Palette,
 ) {
     let form = &mut tab_state.form;
 
     Card::new().show(ui, |ui| {
-        ui.label(
-            egui::RichText::new("New Scheduled Job")
-                .strong()
-                .size(15.0)
-                .color(p.text_primary),
-        );
-        ui.add_space(8.0);
+        Label::new("New Scheduled Job")
+            .font(Font::Headline)
+            .bold(true)
+            .show(ui);
+        Spacer::fixed(8.0).show(ui);
 
         // Name.
         TextField::new(&mut form.name)
             .label("Name")
             .placeholder("Job name")
             .show(ui);
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
 
         // Schedule type.
         FormSection::new().header("Schedule").show(ui, |ui| {
@@ -126,22 +124,16 @@ fn show_add_form(
             RadioGroup::new(&mut form.schedule_type, &schedule_types).show(ui);
         });
 
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
 
         match form.schedule_type {
             1 => {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("Every").size(13.0).color(p.text_primary),
-                    );
+                HStack::new().show(ui, |ui| {
+                    Label::new("Every").font(Font::Callout).show(ui);
                     ui.add(
                         egui::DragValue::new(&mut form.interval_minutes).range(1..=10080),
                     );
-                    ui.label(
-                        egui::RichText::new("minutes")
-                            .size(13.0)
-                            .color(p.text_primary),
-                    );
+                    Label::new("minutes").font(Font::Callout).show(ui);
                 });
             }
             2 => {
@@ -149,22 +141,20 @@ fn show_add_form(
                     .label("Cron expression")
                     .placeholder("0 9 * * 1-5")
                     .show(ui);
-                ui.label(
-                    egui::RichText::new("e.g. \"0 9 * * 1-5\" = 9 AM weekdays")
-                        .size(11.0)
-                        .color(p.text_muted),
-                );
+                Label::new("e.g. \"0 9 * * 1-5\" = 9 AM weekdays")
+                    .font(Font::Caption)
+                    .muted()
+                    .show(ui);
             }
             _ => {
-                ui.label(
-                    egui::RichText::new("One-time jobs run immediately when created.")
-                        .size(11.0)
-                        .color(p.text_muted),
-                );
+                Label::new("One-time jobs run immediately when created.")
+                    .font(Font::Caption)
+                    .muted()
+                    .show(ui);
             }
         }
 
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
 
         // Prompt.
         TextField::new(&mut form.prompt)
@@ -172,7 +162,7 @@ fn show_add_form(
             .placeholder("What should the AI do?")
             .multiline(3)
             .show(ui);
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
 
         // Execution mode.
         FormSection::new().header("Execution Mode").show(ui, |ui| {
@@ -180,7 +170,7 @@ fn show_add_form(
             RadioGroup::new(&mut form.execution_mode, &exec_modes).show(ui);
         });
 
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
 
         // Delivery.
         FormSection::new().header("Delivery").show(ui, |ui| {
@@ -190,14 +180,14 @@ fn show_add_form(
         });
 
         if form.delivery_mode == 1 {
-            ui.add_space(4.0);
+            Spacer::fixed(4.0).show(ui);
             TextField::new(&mut form.webhook_url)
                 .label("Webhook URL")
                 .placeholder("https://...")
                 .show(ui);
         }
 
-        ui.add_space(12.0);
+        Spacer::fixed(12.0).show(ui);
 
         // Buttons.
         let can_create = !form.name.trim().is_empty() && !form.prompt.trim().is_empty();
@@ -270,20 +260,18 @@ fn show_job_card(
 
     Card::new().show(ui, |ui| {
         // Top row: status + name + schedule.
-        ui.horizontal(|ui| {
+        HStack::new().show(ui, |ui| {
             StatusDot::new(status_color).show(ui);
-            ui.label(egui::RichText::new(&job.name).strong().size(13.0));
-            ui.label(
-                egui::RichText::new(format_schedule(&job.schedule))
-                    .size(12.0)
-                    .color(p.text_secondary),
-            );
+            Label::new(&job.name).font(Font::Callout).bold(true).show(ui);
+            Label::new(&format_schedule(&job.schedule))
+                .font(Font::Subheadline)
+                .secondary()
+                .show(ui);
             if let Some(next) = job.next_run {
-                ui.label(
-                    egui::RichText::new(format!("next: {}", next.format("%H:%M")))
-                        .size(11.0)
-                        .color(p.text_muted),
-                );
+                Label::new(&format!("next: {}", next.format("%H:%M")))
+                    .font(Font::Caption)
+                    .muted()
+                    .show(ui);
             }
         });
 
@@ -293,16 +281,15 @@ fn show_job_card(
         } else {
             job.payload.prompt.clone()
         };
-        ui.label(
-            egui::RichText::new(preview)
-                .size(12.0)
-                .color(p.text_secondary),
-        );
+        Label::new(&preview)
+            .font(Font::Subheadline)
+            .secondary()
+            .show(ui);
 
-        ui.add_space(4.0);
+        Spacer::fixed(4.0).show(ui);
 
         // Action buttons.
-        ui.horizontal(|ui| {
+        HStack::new().show(ui, |ui| {
             if Button::new("Run Now")
                 .style(ButtonStyle::Bordered)
                 .small(true)
@@ -352,7 +339,7 @@ fn show_job_card(
                         JobRunStatus::Cancelled => ("\u{2014}", p.text_muted),
                     };
 
-                    ui.horizontal(|ui| {
+                    HStack::new().show(ui, |ui| {
                         ui.label(
                             egui::RichText::new(status_icon)
                                 .color(run_color)

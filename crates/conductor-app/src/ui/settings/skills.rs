@@ -2,7 +2,7 @@ use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
     Label::heading("Skills").show(ui);
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
 
     Label::new(
         "Skills are Markdown instruction documents injected into AI system prompts when active.",
@@ -10,23 +10,23 @@ pub fn show(ui: &mut egui::Ui) {
     .font(Font::Callout)
     .secondary()
     .show(ui);
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
-    FormSection::new().header("Bundled").show(ui, |ui| {
+    Section::new().header("Bundled").show(ui, |ui| {
         EmptyState::new("No bundled skills installed yet")
             .subtitle("Skills will appear here when added to the resources/skills/ directory.")
             .show(ui);
     });
 
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
-    FormSection::new().header("User Skills").show(ui, |ui| {
+    Section::new().header("User Skills").show(ui, |ui| {
         EmptyState::new("No user skills")
             .subtitle("Add .md files to ~/.conductor/skills/ to create custom skills.")
             .show(ui);
     });
 
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
     if Button::new("Open Skills Directory")
         .style(ButtonStyle::Bordered)

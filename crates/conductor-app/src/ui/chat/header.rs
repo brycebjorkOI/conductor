@@ -35,8 +35,8 @@ pub fn show(
 
     drop(state);
 
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
+    HStack::new().show(ui, |ui| {
+        Spacer::fixed(8.0).show(ui);
 
         if !*sidebar_open {
             if Button::new(icons::HAMBURGER)
@@ -47,7 +47,7 @@ pub fn show(
             {
                 *sidebar_open = true;
             }
-            ui.add_space(4.0);
+            Spacer::fixed(4.0).show(ui);
         }
 
         if found_backends.len() >= 2 {
@@ -89,6 +89,6 @@ pub fn show(
             );
         }
 
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
     });
 }

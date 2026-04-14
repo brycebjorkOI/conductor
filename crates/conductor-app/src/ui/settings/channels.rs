@@ -6,7 +6,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
     let p = ui.palette();
 
     Label::heading("Messaging Channels").show(ui);
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
     let state = shared.read();
     let channels = state.channels.clone();
@@ -27,7 +27,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
 
         for (name, auth_hint) in platforms {
             Card::new().show(ui, |ui| {
-                ui.horizontal(|ui| {
+                HStack::new().show(ui, |ui| {
                     StatusDot::new(p.text_muted).show(ui);
                     Label::new(name).font(Font::Callout).bold(true).show(ui);
                     Label::new("Not configured")
@@ -52,7 +52,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
             };
 
             Card::new().border_color(status_color).show(ui, |ui| {
-                ui.horizontal(|ui| {
+                HStack::new().show(ui, |ui| {
                     StatusDot::new(status_color).show(ui);
                     Label::new(&ch.display_name)
                         .font(Font::Callout)

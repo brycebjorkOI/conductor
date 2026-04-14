@@ -8,7 +8,6 @@ use egui::Color32;
 /// Layout constants calibrated from macOS / Claude desktop screenshots.
 pub struct Layout;
 
-#[allow(dead_code)]
 impl Layout {
     pub const MAX_CONTENT_WIDTH: f32 = 640.0;
     pub const MESSAGE_SPACING: f32 = 20.0;

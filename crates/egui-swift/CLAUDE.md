@@ -11,23 +11,59 @@ cargo test -p egui-swift
 
 Single dependency: `egui = "0.31"`. No platform-specific code.
 
-## Quick Start
+## Quick Start — App Skeleton
+
+**Always use `use egui_swift::prelude::*;`** — one import gives you every type, trait, and alias.
 
 ```rust
 use egui_swift::prelude::*;
 
-fn my_view(ui: &mut egui::Ui) {
-    let p = ui.palette();
-    Text::new("Settings").font(Font::Title).show(ui);
-    Section::new().header("Appearance").show(ui, |ui| {
-        Toggle::new(&mut dark_mode).label("Dark mode").show(ui);
-        Picker::new("Theme", &mut theme, &options).show(ui);
-    });
-    Image::system_name("gear").tint(p.accent).show(ui);
+fn main() -> eframe::Result {
+    eframe::run_native("My App", eframe::NativeOptions::default(), Box::new(|cc| {
+        egui_swift::theme::apply_macos_style(&cc.egui_ctx);
+        Ok(Box::new(MyApp::default()))
+    }))
+}
+
+#[derive(Default)]
+struct MyApp {
+    settings: SettingsView,
+}
+
+impl eframe::App for MyApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let p = ctx.palette();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(p.surface))
+            .show(ctx, |ui| {
+                self.settings.show(ui);  // View trait
+            });
+    }
+}
+
+// Each screen is a struct implementing View:
+#[derive(Default)]
+struct SettingsView {
+    dark_mode: bool,
+    language: String,
+}
+
+impl View for SettingsView {
+    fn body(&mut self, ui: &mut egui::Ui) {
+        Label::heading("Settings").show(ui);
+        Spacer::fixed(16.0).show(ui);
+        Form::new().show(ui, |ui| {
+            Section::new().header("Appearance").show(ui, |ui| {
+                Toggle::new(&mut self.dark_mode).label("Dark mode").show(ui);
+                let langs = vec![("en".into(), "English"), ("es".into(), "Spanish")];
+                Picker::new("Language", &mut self.language, &langs).show(ui);
+            });
+        });
+    }
 }
 ```
 
-**Always use `use egui_swift::prelude::*;`** — one import gives you every type, trait, and alias.
+A runnable example is at `examples/settings_app.rs` — run with `cargo run -p egui-swift --example settings_app`.
 
 ## Architecture
 
@@ -42,6 +78,7 @@ fn my_view(ui: &mut egui::Ui) {
 
 ```
 src/
+  view.rs               — View trait: body(&mut self, ui) + show(ui) — the core compositional pattern
   prelude.rs            — Single re-export of everything
   swiftui_compat.rs     — Type aliases: Text, Section, GroupBox, ProgressView, ContentUnavailableView
 
@@ -60,6 +97,7 @@ src/
   status_dot.rs         — Colored circle indicator with optional label
 
   card.rs               — Rounded container (also aliased as GroupBox)
+  form.rs               — Form container: auto-styled scrollable area for Sections
   form_section.rs       — Grouped inset section with header/footer (also aliased as Section)
   form_row.rs           — Label + right-aligned control row
 
@@ -81,6 +119,7 @@ src/
   list.rs               — Styled scrollable list with dividers and selection (Plain / InsetGrouped)
   tab_view.rs           — Bottom tab bar with SF Symbol icons + labels
   navigation_split_view.rs — Sidebar + detail split layout
+  navigation_stack.rs   — Push/pop drill-down navigation with NavPath + back button
   toolbar.rs            — Top bar with leading/title/trailing regions
   alert.rs              — Lightweight confirmation dialog with animated backdrop
   sheet.rs              — Modal panel with animated backdrop
@@ -171,6 +210,9 @@ The `Font` enum maps to SwiftUI's font styles:
 | `Divider()` | `Divider::new().show(ui)` |
 | `List { ForEach... }` | `List::new().inset_grouped().show(ui, \|list\| { list.row(sel, \|ui\| { }) })` |
 | `TabView { }.tabItem { }` | `TabView::new(&mut sel).tab("id", "Label", "sf_name", \|ui\| { }).show(ui)` |
+| `struct Foo: View { var body: some View { } }` | `struct Foo { } impl View for Foo { fn body(&mut self, ui) { } }` |
+| `NavigationStack { List { NavigationLink } }` | `NavigationStack::new(&mut nav).show(ui, \|ui, nav\| { nav.push("id") })` |
+| `Form { Section { } }` | `Form::new().show(ui, \|ui\| { Section::new().header("...").show(ui, \|ui\| { }) })` |
 | `.alert("Title", isPresented: $show) { }` | `Alert::new("Title", &mut show).destructive_action("Delete").cancel().show(ctx)` |
 | `.sheet(isPresented: $open) { }` | `Sheet::new("id", &mut open, "Title").show(ctx, \|ui\| { })` |
 | `VStack(spacing: 8) { }` | `VStack::new().spacing(8.0).show(ui, \|ui\| { })` |
@@ -404,31 +446,90 @@ Section::new().header("Details").show(ui, |ui| {
 });
 ```
 
-### Complete minimal app skeleton
+### Composable views with the View trait
 
 ```rust
-use egui_swift::prelude::*;
-
-fn main() -> eframe::Result {
-    eframe::run_native("My App", eframe::NativeOptions::default(), Box::new(|cc| {
-        egui_swift::theme::apply_macos_style(&cc.egui_ctx);
-        Ok(Box::new(MyApp::default()))
-    }))
+// Each screen is a struct with state + View impl:
+#[derive(Default)]
+struct GeneralView {
+    dark_mode: bool,
+    language: String,
 }
 
-#[derive(Default)]
-struct MyApp { /* state fields */ }
-
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let p = ctx.palette();
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(p.surface))
-            .show(ctx, |ui| {
-                Label::heading("Hello, egui-swift!").show(ui);
-            });
+impl View for GeneralView {
+    fn body(&mut self, ui: &mut egui::Ui) {
+        Label::heading("General").show(ui);
+        Spacer::fixed(16.0).show(ui);
+        Section::new().header("Appearance").show(ui, |ui| {
+            Toggle::new(&mut self.dark_mode).label("Dark mode").show(ui);
+        });
     }
 }
+
+// Views compose — embed one view inside another:
+#[derive(Default)]
+struct SettingsView {
+    general: GeneralView,
+    account: AccountView,
+    selected: String,
+}
+
+impl View for SettingsView {
+    fn body(&mut self, ui: &mut egui::Ui) {
+        // Use NavigationSplitView, TabView, or simple branching:
+        match self.selected.as_str() {
+            "account" => self.account.show(ui),
+            _ => self.general.show(ui),
+        }
+    }
+}
+```
+
+### Push/pop navigation (NavigationStack)
+
+```rust
+#[derive(Default)]
+struct MyApp {
+    nav: NavPath,
+    items: Vec<Item>,
+}
+
+// In update():
+NavigationStack::new(&mut self.nav).show(ui, |ui, nav| {
+    // This is the root view. When nav.push() is called,
+    // a back button appears automatically.
+    Label::heading("Items").show(ui);
+    List::new().show(ui, |list| {
+        for item in &self.items {
+            if list.item(|ui| { Text::new(&item.name).show(ui); }).clicked() {
+                nav.push(item.id.clone());
+            }
+        }
+    });
+});
+
+// After show(), check if we're on a detail page:
+if let Some(item_id) = self.nav.current().map(|s| s.to_string()) {
+    if let Some(item) = self.items.iter().find(|i| i.id == item_id) {
+        Label::heading(&item.name).show(ui);
+        Label::new(&item.description).secondary().show(ui);
+    }
+}
+```
+
+### Form with sections
+
+```rust
+Form::new().max_width(500.0).show(ui, |ui| {
+    Section::new().header("General").show(ui, |ui| {
+        Toggle::new(&mut self.option_a).label("Option A").show(ui);
+        Toggle::new(&mut self.option_b).label("Option B").show(ui);
+    });
+    Section::new().header("Advanced").show(ui, |ui| {
+        Picker::new("Mode", &mut self.mode, &modes).show(ui);
+        Stepper::new(&mut self.count, 1.0..=100.0).label("Count").show(ui);
+    });
+});
 ```
 
 ## Adding a New Component

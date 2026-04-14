@@ -31,9 +31,9 @@ pub fn show(
         .show(ctx, |sidebar, detail| {
             sidebar.show(|ui| {
                 Label::heading("Settings").show(ui);
-                ui.add_space(8.0);
+                Spacer::fixed(8.0).show(ui);
                 Divider::new().show(ui);
-                ui.add_space(8.0);
+                Spacer::fixed(8.0).show(ui);
 
                 let tabs = [
                     (SettingsTab::About, "About", "info.circle"),
@@ -62,8 +62,8 @@ pub fn show(
                     }
                 }
 
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(8.0);
+                Spacer::bottom(ui, |ui| {
+                    Spacer::fixed(8.0).show(ui);
                     if Button::new("Close Settings")
                         .style(ButtonStyle::Bordered)
                         .show(ui)
@@ -71,7 +71,7 @@ pub fn show(
                     {
                         let _ = tx.send(Action::CloseSettings);
                     }
-                    ui.add_space(4.0);
+                    Spacer::fixed(4.0).show(ui);
                 });
             });
 

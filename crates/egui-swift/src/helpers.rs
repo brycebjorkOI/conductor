@@ -35,9 +35,9 @@ pub fn animate_bool(ui: &Ui, id: egui::Id, value: bool, seconds: f32) -> f32 {
 
 /// Truncate a string to `max_chars`, appending "..." if truncated.
 pub fn truncate_text(text: &str, max_chars: usize) -> String {
-    if text.len() <= max_chars {
+    if max_chars < 4 || text.len() <= max_chars {
         text.to_string()
     } else {
-        format!("{}...", &text[..max_chars.saturating_sub(3)])
+        format!("{}...", &text[..max_chars - 3])
     }
 }

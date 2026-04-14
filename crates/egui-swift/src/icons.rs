@@ -5,7 +5,9 @@
 
 // Navigation / disclosure
 pub const CHEVRON_RIGHT: &str = "\u{203a}"; // ›
+pub const CHEVRON_LEFT: &str = "\u{2039}";  // ‹
 pub const CHEVRON_DOWN: &str = "\u{2304}";  // ⌄
+pub const CHEVRON_UP: &str = "\u{2303}";    // ⌃
 pub const HAMBURGER: &str = "\u{2630}";     // ☰
 
 // Actions

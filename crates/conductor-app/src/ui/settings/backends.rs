@@ -41,13 +41,13 @@ pub fn show(
             }
         });
     });
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
     for backend in &registry {
         let color = discovery_color(backend.discovery_state, &p);
 
         Card::new().border_color(color).show(ui, |ui| {
-            ui.horizontal(|ui| {
+            HStack::new().show(ui, |ui| {
                 StatusDot::new(color).show(ui);
                 let version = backend.version.as_deref().unwrap_or("");
                 let title = if version.is_empty() {
@@ -89,7 +89,7 @@ pub fn show(
                         .show(ui);
                 }
                 DiscoveryState::Scanning => {
-                    ui.horizontal(|ui| {
+                    HStack::new().show(ui, |ui| {
                         ProgressIndicator::spinner().size(16.0).show(ui);
                         Label::new("Scanning...")
                             .font(Font::Subheadline)
@@ -113,9 +113,9 @@ pub fn show(
         });
     }
 
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
     Divider::new().show(ui);
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
     FormSection::new().header("Default Backend").show(ui, |ui| {
         let current = default_id.as_deref().unwrap_or("none");
@@ -140,7 +140,7 @@ pub fn show(
             });
     });
 
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
     FormSection::new().header("Fallback Order").show(ui, |ui| {
         if fallback.is_empty() {
             Label::new("No fallback backends configured.")

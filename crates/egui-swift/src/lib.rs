@@ -22,6 +22,9 @@
 // Prelude (single import for everything)
 pub mod prelude;
 
+// Core trait
+pub mod view;
+
 // SwiftUI compatibility aliases
 pub mod swiftui_compat;
 
@@ -45,6 +48,7 @@ pub mod toggle;
 
 // Containers
 pub mod card;
+pub mod form;
 pub mod form_row;
 pub mod form_section;
 
@@ -71,6 +75,7 @@ pub mod list;
 
 // Navigation
 pub mod navigation_split_view;
+pub mod navigation_stack;
 pub mod tab_view;
 
 // Advanced

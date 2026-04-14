@@ -16,18 +16,17 @@ impl Badge {
         Self { count }
     }
 
-    pub fn show(self, ui: &mut egui::Ui) {
+    pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
         let text = format!("{}", self.count);
         let font = egui::FontId::proportional(10.5);
 
-        // Measure text width to size the pill.
         let galley = ui.painter().layout_no_wrap(text.clone(), font.clone(), p.text_muted);
         let text_width = galley.size().x;
         let pill_width = (text_width + 12.0).max(20.0);
         let pill_height = 16.0;
 
-        let (rect, _) = ui.allocate_exact_size(
+        let (rect, response) = ui.allocate_exact_size(
             egui::vec2(pill_width, pill_height),
             egui::Sense::hover(),
         );
@@ -45,5 +44,7 @@ impl Badge {
             font,
             p.text_muted,
         );
+
+        response
     }
 }

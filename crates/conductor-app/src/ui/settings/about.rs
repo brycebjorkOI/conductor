@@ -2,20 +2,14 @@ use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
     Label::heading("Conductor").show(ui);
-    ui.add_space(16.0);
+    Spacer::fixed(16.0).show(ui);
 
-    FormSection::new().show(ui, |ui| {
-        Label::new(&format!("Version: {}", env!("CARGO_PKG_VERSION")))
-            .font(Font::Callout)
-            .show(ui);
-        ui.add_space(4.0);
-        Label::new(&format!("Target: {}", std::env::consts::ARCH))
-            .font(Font::Callout)
-            .secondary()
-            .show(ui);
+    Section::new().show(ui, |ui| {
+        LabeledContent::new("Version", env!("CARGO_PKG_VERSION")).show(ui);
+        LabeledContent::new("Target", std::env::consts::ARCH).show(ui);
     });
 
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
     Label::new(
         "A unified, provider-agnostic conversational interface to multiple AI language-model backends.",
@@ -24,15 +18,15 @@ pub fn show(ui: &mut egui::Ui) {
     .secondary()
     .show(ui);
 
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
     Label::new("Built with Rust + egui")
         .font(Font::Subheadline)
         .muted()
         .show(ui);
 
-    ui.add_space(16.0);
+    Spacer::fixed(16.0).show(ui);
     Divider::new().show(ui);
-    ui.add_space(8.0);
+    Spacer::fixed(8.0).show(ui);
 
     Label::new("Licensed under the MIT License.")
         .font(Font::Subheadline)

@@ -16,7 +16,7 @@ impl<'a> SectionHeader<'a> {
         Self { label }
     }
 
-    pub fn show(self, ui: &mut egui::Ui) {
+    pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
         ui.horizontal(|ui| {
             ui.add_space(14.0);
@@ -25,7 +25,8 @@ impl<'a> SectionHeader<'a> {
                     .size(10.5)
                     .strong()
                     .color(p.text_muted),
-            );
-        });
+            )
+        })
+        .inner
     }
 }

@@ -4,7 +4,7 @@ use crate::bridge::SharedState;
 
 pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
     Label::heading("MCP Server Configuration").show(ui);
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
     let state = shared.read();
     let registry = state.backend_registry.clone();
@@ -28,7 +28,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
     }
 
     for backend_id in &supported {
-        FormSection::new()
+        Section::new()
             .header(&format!("Backend: {backend_id}"))
             .show(ui, |ui| {
                 let transports = conductor_core::mcp::supported_transports(backend_id);
@@ -48,7 +48,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
                 if let Some(servers) = servers {
                     for server in servers {
                         Card::new().show(ui, |ui| {
-                            ui.horizontal(|ui| {
+                            HStack::new().show(ui, |ui| {
                                 Label::new(&server.name)
                                     .font(Font::Callout)
                                     .bold(true)
@@ -82,7 +82,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
                         .show(ui);
                 }
 
-                ui.add_space(4.0);
+                Spacer::fixed(4.0).show(ui);
                 if Button::new("+ Add MCP Server")
                     .style(ButtonStyle::Bordered)
                     .small(true)
@@ -93,6 +93,6 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
                 }
             });
 
-        ui.add_space(8.0);
+        Spacer::fixed(8.0).show(ui);
     }
 }

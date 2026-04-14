@@ -8,7 +8,7 @@ use crate::bridge::SharedState;
 
 pub fn show(ui: &mut egui::Ui, shared: &SharedState, tx: &mpsc::UnboundedSender<Action>) {
     Label::heading("Sessions").show(ui);
-    ui.add_space(12.0);
+    Spacer::fixed(12.0).show(ui);
 
     let state = shared.read();
     let active_sid = state.active_session_id.clone();

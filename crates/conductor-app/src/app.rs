@@ -152,8 +152,8 @@ impl eframe::App for ConductorApp {
                 .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
                     let available_height = ui.available_height();
-                    ui.vertical(|ui| {
-                        ui.add_space(available_height * 0.28);
+                    VStack::new().show(ui, |ui| {
+                        Spacer::fixed(available_height * 0.28).show(ui);
 
                         ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
                             ui.vertical_centered(|ui| {
@@ -164,7 +164,7 @@ impl eframe::App for ConductorApp {
                             });
                         });
 
-                        ui.add_space(24.0);
+                        Spacer::fixed(24.0).show(ui);
 
                         ui::chat::input_bar::show(
                             ui,
@@ -175,7 +175,7 @@ impl eframe::App for ConductorApp {
                             &self.action_tx,
                         );
 
-                        ui.add_space(16.0);
+                        Spacer::fixed(16.0).show(ui);
 
                         ui.vertical_centered(|ui| {
                             suggestion_chip::chip_row(

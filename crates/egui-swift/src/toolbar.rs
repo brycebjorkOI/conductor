@@ -41,7 +41,7 @@ impl<'a> Toolbar<'a> {
         self
     }
 
-    pub fn show(self, ui: &mut egui::Ui) {
+    pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
 
         let (rect, _) = ui.allocate_exact_size(
@@ -92,7 +92,7 @@ impl<'a> Toolbar<'a> {
         }
 
         // Bottom divider.
-        Divider::new().show(ui);
+        Divider::new().show(ui)
     }
 }
 

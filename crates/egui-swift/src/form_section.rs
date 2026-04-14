@@ -7,7 +7,6 @@
 //! ```
 
 use crate::colors;
-use crate::divider::Divider;
 use crate::theme::Layout;
 
 pub struct FormSection<'a> {
@@ -79,11 +78,6 @@ impl<'a> FormSection<'a> {
                 );
             });
         }
-
-        // Suppress unused import warning — Divider is intended for future
-        // auto-divider between children, but requires layout introspection
-        // not yet implemented.
-        let _ = std::marker::PhantomData::<Divider>;
 
         resp
     }
