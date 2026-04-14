@@ -1,0 +1,20 @@
+# Build
+/target/
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Conductor runtime data
+.conductor/
+
+# Claude Code
+.claude/
+
+plan/
