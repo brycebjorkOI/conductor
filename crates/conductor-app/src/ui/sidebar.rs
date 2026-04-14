@@ -3,16 +3,33 @@ use tokio::sync::mpsc;
 use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::SettingsTab;
+use conductor_ui::conversation_item::ConversationItem;
+use conductor_ui::nav_row::NavRow;
+use conductor_ui::search_field::SearchField;
+use conductor_ui::section_header::SectionHeader;
+use conductor_ui::user_profile::UserProfile;
 
 use crate::bridge::SharedState;
-use crate::theme::Theme;
+
+/// Persistent sidebar state (lives across frames).
+pub struct SidebarState {
+    pub search_query: String,
+}
+
+impl Default for SidebarState {
+    fn default() -> Self {
+        Self {
+            search_query: String::new(),
+        }
+    }
+}
 
 pub fn show(
     ui: &mut egui::Ui,
     shared: &SharedState,
     tx: &mpsc::UnboundedSender<Action>,
+    sidebar_state: &mut SidebarState,
 ) {
-    let dark = ui.visuals().dark_mode;
     let state = shared.read();
     let active_sid = state.active_session_id.clone();
 
@@ -30,114 +47,81 @@ pub fn show(
     sessions.sort_by(|a, b| a.1.cmp(&b.1));
     drop(state);
 
-    // Leave room for macOS traffic lights (close/minimize/fullscreen).
-    ui.add_space(38.0);
-
-    // -- New Chat --
-    sidebar_row(ui, dark, false, false, |ui| {
-        ui.label(
-            egui::RichText::new("+")
-                .size(14.0)
-                .color(Theme::text_secondary(dark)),
-        );
-        ui.add_space(2.0);
-        ui.label(
-            egui::RichText::new("New chat")
-                .size(13.5)
-                .color(Theme::text_primary(dark)),
-        );
-    }, || {
+    // -- New Conversation button --
+    if NavRow::new("New Conversation").icon("+").show(ui).clicked() {
         let _ = tx.send(Action::NewSession);
-    });
+    }
 
     ui.add_space(6.0);
 
-    // -- Nav items --
-    sidebar_row(ui, dark, false, false, |ui| {
-        ui.label(
-            egui::RichText::new("Settings")
-                .size(13.0)
-                .color(Theme::text_secondary(dark)),
-        );
-    }, || {
-        let _ = tx.send(Action::OpenSettings { tab: Some(SettingsTab::General) });
+    // -- Search --
+    ui.horizontal(|ui| {
+        ui.add_space(8.0);
+        ui.scope(|ui| {
+            ui.set_width(ui.available_width() - 16.0);
+            SearchField::new(&mut sidebar_state.search_query).show(ui);
+        });
     });
 
-    ui.add_space(16.0);
+    ui.add_space(8.0);
+
+    // -- Nav items --
+    // The screenshot shows: Chats, Projects, Schedules, Notifications, Trash
+    if NavRow::new("Chats").icon("\u{1f4ac}").active(true).show(ui).clicked() {
+        // already on chats
+    }
+    if NavRow::new("Projects").icon("\u{1f4c1}").show(ui).clicked() {
+        // future
+    }
+    if NavRow::new("Schedules").icon("\u{1f4c5}").show(ui).clicked() {
+        let _ = tx.send(Action::OpenSettings { tab: Some(SettingsTab::Schedules) });
+    }
+    if NavRow::new("Notifications").icon("\u{1f514}").show(ui).clicked() {
+        // future
+    }
+    if NavRow::new("Trash").icon("\u{1f5d1}").show(ui).clicked() {
+        // future
+    }
+
+    ui.add_space(12.0);
+
+    // -- Recent section header --
+    SectionHeader::new("Recent").show(ui);
+
+    ui.add_space(4.0);
 
     // -- Conversation list --
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
+            // Filter by search query.
+            let query = sidebar_state.search_query.to_lowercase();
             for (id, name) in &sessions {
+                if !query.is_empty() && !name.to_lowercase().contains(&query) {
+                    continue;
+                }
                 let is_active = id == &active_sid;
-                let tx_clone = tx.clone();
-                let id_clone = id.clone();
-
-                sidebar_row(ui, dark, is_active, true, |ui| {
-                    let truncated = if name.len() > 30 {
-                        format!("{}...", &name[..27])
-                    } else {
-                        name.clone()
-                    };
-                    let color = if is_active {
-                        Theme::text_primary(dark)
-                    } else {
-                        Theme::text_secondary(dark)
-                    };
-                    ui.label(
-                        egui::RichText::new(truncated)
-                            .size(13.0)
-                            .color(color),
-                    );
-                }, move || {
-                    let _ = tx_clone.send(Action::SwitchSession {
-                        session_id: id_clone.clone(),
+                if ConversationItem::new(id, name)
+                    .active(is_active)
+                    .show(ui)
+                    .clicked()
+                {
+                    let _ = tx.send(Action::SwitchSession {
+                        session_id: id.clone(),
                     });
-                });
+                }
             }
         });
-}
 
-/// Renders a sidebar row with hover/active states and click handling.
-fn sidebar_row(
-    ui: &mut egui::Ui,
-    dark: bool,
-    is_active: bool,
-    is_session: bool,
-    content: impl FnOnce(&mut egui::Ui),
-    on_click: impl FnOnce(),
-) {
-    let height = if is_session { 32.0 } else { 30.0 };
-    let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), height),
-        egui::Sense::click(),
-    );
-
-    let bg = if is_active {
-        Theme::sidebar_active(dark)
-    } else if response.hovered() {
-        Theme::sidebar_hover(dark)
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-
-    ui.painter().rect_filled(
-        rect.shrink2(egui::vec2(4.0, 1.0)),
-        egui::CornerRadius::same(6),
-        bg,
-    );
-
-    // Content positioned inside the rect.
-    let content_rect = rect.shrink2(egui::vec2(16.0, 0.0));
-    let mut child_ui = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(content_rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-    );
-    content(&mut child_ui);
-
-    if response.clicked() {
-        on_click();
-    }
+    // -- User profile at bottom --
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+        ui.add_space(8.0);
+        let resp = UserProfile::new("User")
+            .version(concat!("v", env!("CARGO_PKG_VERSION")))
+            .show(ui);
+        if resp.settings_clicked {
+            let _ = tx.send(Action::OpenSettings { tab: Some(SettingsTab::General) });
+        }
+        ui.add_space(4.0);
+    });
 }

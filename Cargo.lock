@@ -347,6 +347,7 @@ dependencies = [
  "arboard",
  "chrono",
  "conductor-core",
+ "conductor-ui",
  "eframe",
  "egui",
  "egui_commonmark",
@@ -377,6 +378,13 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "conductor-ui"
+version = "0.1.0"
+dependencies = [
+ "egui",
 ]
 
 [[package]]

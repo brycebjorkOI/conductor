@@ -4,6 +4,7 @@ use conductor_core::config;
 use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::AppState;
+use conductor_ui::suggestion_chip;
 
 use crate::bridge::SharedState;
 use crate::runtime::RuntimeHandle;
@@ -17,6 +18,8 @@ pub struct ConductorApp {
     input_text: String,
     show_autocomplete: bool,
     sidebar_open: bool,
+    sidebar_state: ui::sidebar::SidebarState,
+    selected_backend_idx: usize,
 }
 
 impl ConductorApp {
@@ -46,6 +49,8 @@ impl ConductorApp {
             input_text: String::new(),
             show_autocomplete: false,
             sidebar_open: true,
+            sidebar_state: ui::sidebar::SidebarState::default(),
+            selected_backend_idx: 0,
         }
     }
 }
@@ -53,6 +58,11 @@ impl ConductorApp {
 impl eframe::App for ConductorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let dark = ctx.style().visuals.dark_mode;
+        let p = if dark {
+            conductor_ui::colors::dark()
+        } else {
+            conductor_ui::colors::light()
+        };
 
         // Settings view.
         {
@@ -64,38 +74,40 @@ impl eframe::App for ConductorApp {
             }
         }
 
-        // -- Sidebar --
+        // -- Sidebar (using conductor-ui SidebarPanel) --
         if self.sidebar_open {
-            egui::SidePanel::left("sidebar")
-                .resizable(false)
-                .exact_width(Theme::SIDEBAR_WIDTH)
-                .frame(
-                    egui::Frame::NONE
-                        .fill(Theme::sidebar_bg(dark))
-                        .inner_margin(egui::Margin::same(0))
-                        .stroke(egui::Stroke::new(
-                            0.5,
-                            if dark {
-                                egui::Color32::from_rgb(50, 50, 50)
-                            } else {
-                                egui::Color32::from_rgb(222, 220, 216)
-                            },
-                        )),
-                )
+            conductor_ui::sidebar::SidebarPanel::new()
+                .width(Theme::SIDEBAR_WIDTH)
                 .show(ctx, |ui| {
-                    ui::sidebar::show(ui, &self.shared, &self.action_tx);
+                    ui::sidebar::show(
+                        ui,
+                        &self.shared,
+                        &self.action_tx,
+                        &mut self.sidebar_state,
+                    );
                 });
         }
 
-        // -- Header (top) --
+        // -- Header --
         egui::TopBottomPanel::top("header")
             .frame(
                 egui::Frame::NONE
-                    .fill(Theme::surface(dark))
-                    .inner_margin(egui::Margin { left: 0, right: 0, top: 30, bottom: 6 }),
+                    .fill(p.surface)
+                    .inner_margin(egui::Margin {
+                        left: 0,
+                        right: 0,
+                        top: 30, // traffic light clearance
+                        bottom: 6,
+                    }),
             )
             .show(ctx, |ui| {
-                ui::chat::header::show(ui, &self.shared, &self.action_tx, &mut self.sidebar_open);
+                ui::chat::header::show(
+                    ui,
+                    &self.shared,
+                    &self.action_tx,
+                    &mut self.sidebar_open,
+                    &mut self.selected_backend_idx,
+                );
             });
 
         // Gather session info.
@@ -115,11 +127,10 @@ impl eframe::App for ConductorApp {
 
         if has_messages {
             // --- Normal chat mode: input at bottom, messages above ---
-
             egui::TopBottomPanel::bottom("input_bar")
                 .frame(
                     egui::Frame::NONE
-                        .fill(Theme::surface(dark))
+                        .fill(p.surface)
                         .inner_margin(egui::Margin::ZERO),
                 )
                 .show(ctx, |ui| {
@@ -134,17 +145,16 @@ impl eframe::App for ConductorApp {
                 });
 
             egui::CentralPanel::default()
-                .frame(egui::Frame::NONE.fill(Theme::surface(dark)))
+                .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
                     if let Some(ref session) = session_clone {
                         ui::chat::message_list::show(ui, session);
                     }
                 });
         } else {
-            // --- Empty state: greeting + input centered in the page ---
-
+            // --- Empty state: greeting + centered input + suggestion chips ---
             egui::CentralPanel::default()
-                .frame(egui::Frame::NONE.fill(Theme::surface(dark)))
+                .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
                     let available_width = ui.available_width();
                     let content_width = available_width.min(Theme::MAX_CONTENT_WIDTH);
@@ -152,7 +162,6 @@ impl eframe::App for ConductorApp {
                     let available_height = ui.available_height();
 
                     ui.vertical(|ui| {
-                        // Push greeting to ~35% from top.
                         ui.add_space(available_height * 0.28);
 
                         // Greeting.
@@ -161,24 +170,11 @@ impl eframe::App for ConductorApp {
                             ui.vertical(|ui| {
                                 ui.set_max_width(content_width);
                                 ui.vertical_centered(|ui| {
-                                    let greeting = {
-                                        let hour = chrono::Local::now()
-                                            .format("%H")
-                                            .to_string()
-                                            .parse::<u32>()
-                                            .unwrap_or(12);
-                                        if hour < 12 {
-                                            "Good morning"
-                                        } else if hour < 18 {
-                                            "Good afternoon"
-                                        } else {
-                                            "Good evening"
-                                        }
-                                    };
+                                    let greeting = time_greeting();
                                     ui.label(
                                         egui::RichText::new(format!("\u{2728}  {greeting}"))
                                             .size(26.0)
-                                            .color(Theme::text_primary(dark)),
+                                            .color(p.text_primary),
                                     );
                                 });
                             });
@@ -186,7 +182,7 @@ impl eframe::App for ConductorApp {
 
                         ui.add_space(24.0);
 
-                        // Input bar — centered in the page.
+                        // Chat input (centered).
                         ui::chat::input_bar::show(
                             ui,
                             &mut self.input_text,
@@ -198,35 +194,35 @@ impl eframe::App for ConductorApp {
 
                         ui.add_space(16.0);
 
-                        // Suggestion chips (like Claude's Write/Learn/Code/etc).
+                        // Suggestion chips (using conductor-ui).
                         ui.vertical_centered(|ui| {
-                            ui.horizontal(|ui| {
-                                let chips = [
+                            suggestion_chip::chip_row(
+                                ui,
+                                &[
                                     ("\u{270f}", "Write"),
-                                    ("\u{2728}", "Learn"),
-                                    ("\u{2699}", "Code"),
-                                    ("\u{25ef}", "Chat"),
-                                ];
-                                for (icon, label) in chips {
-                                    let btn = egui::Button::new(
-                                        egui::RichText::new(format!("{icon}  {label}"))
-                                            .size(12.0)
-                                            .color(Theme::text_secondary(dark)),
-                                    )
-                                    .fill(egui::Color32::TRANSPARENT)
-                                    .stroke(egui::Stroke::new(
-                                        0.5,
-                                        Theme::input_border(dark),
-                                    ))
-                                    .corner_radius(egui::CornerRadius::same(16));
-
-                                    ui.add(btn);
-                                    ui.add_space(4.0);
-                                }
-                            });
+                                    ("\u{1f4d6}", "Learn"),
+                                    ("</>" , "Code"),
+                                    ("\u{1f4a1}", "Brainstorm"),
+                                ],
+                            );
                         });
                     });
                 });
         }
+    }
+}
+
+fn time_greeting() -> &'static str {
+    let hour = chrono::Local::now()
+        .format("%H")
+        .to_string()
+        .parse::<u32>()
+        .unwrap_or(12);
+    if hour < 12 {
+        "Good morning"
+    } else if hour < 18 {
+        "Good afternoon"
+    } else {
+        "Good evening"
     }
 }
