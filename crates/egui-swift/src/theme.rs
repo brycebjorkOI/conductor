@@ -97,8 +97,16 @@ pub fn apply_macos_style(ctx: &egui::Context) {
     style.visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
     style.visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
 
-    // Subtle selection highlight.
-    style.visuals.selection.bg_fill = Color32::from_rgba_premultiplied(191, 87, 0, 40);
+    // Text selection uses the palette accent at 25% opacity.
+    let palette = crate::colors::palette_from_ctx(ctx);
+    style.visuals.selection.bg_fill =
+        Color32::from_rgba_unmultiplied(palette.accent.r(), palette.accent.g(), palette.accent.b(), 64);
+    style.visuals.selection.stroke = egui::Stroke::new(1.0, palette.accent);
+
+    // Thin scrollbar styling (macOS overlay style).
+    style.spacing.scroll.bar_width = 6.0;
+    style.spacing.scroll.bar_inner_margin = 2.0;
+    style.spacing.scroll.bar_outer_margin = 2.0;
 
     ctx.set_style(style);
 }

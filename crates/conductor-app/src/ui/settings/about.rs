@@ -1,35 +1,20 @@
 use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
-    Label::heading("Conductor").show(ui);
-    Spacer::fixed(16.0).show(ui);
+    egui_swift::text!(ui, "Conductor", .title);
+    egui_swift::spacer!(ui, 16.0);
 
-    Section::new().show(ui, |ui| {
+    egui_swift::section!(ui, {
         LabeledContent::new("Version", env!("CARGO_PKG_VERSION")).show(ui);
         LabeledContent::new("Target", std::env::consts::ARCH).show(ui);
     });
 
-    Spacer::fixed(12.0).show(ui);
-
-    Label::new(
-        "A unified, provider-agnostic conversational interface to multiple AI language-model backends.",
-    )
-    .font(Font::Callout)
-    .secondary()
-    .show(ui);
-
-    Spacer::fixed(8.0).show(ui);
-    Label::new("Built with Rust + egui")
-        .font(Font::Subheadline)
-        .muted()
-        .show(ui);
-
-    Spacer::fixed(16.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
+    egui_swift::text!(ui, "A unified, provider-agnostic conversational interface to multiple AI language-model backends.", .callout, .secondary);
+    egui_swift::spacer!(ui, 8.0);
+    egui_swift::text!(ui, "Built with Rust + egui", .subheadline, .muted);
+    egui_swift::spacer!(ui, 16.0);
     Divider::new().show(ui);
-    Spacer::fixed(8.0).show(ui);
-
-    Label::new("Licensed under the MIT License.")
-        .font(Font::Subheadline)
-        .muted()
-        .show(ui);
+    egui_swift::spacer!(ui, 8.0);
+    egui_swift::text!(ui, "Licensed under the MIT License.", .subheadline, .muted);
 }

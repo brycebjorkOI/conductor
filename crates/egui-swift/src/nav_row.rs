@@ -1,18 +1,9 @@
-//! Sidebar navigation row — icon + label with active/hover states and optional
-//! badge count.
-//!
-//! ```no_run
-//! # let ui: &mut egui::Ui = todo!();
-//! use conductor_ui::nav_row::NavRow;
-//! if NavRow::new("Chats").icon("\u{1f4ac}").active(true).show(ui).clicked() {
-//!     // handle click
-//! }
-//! NavRow::new("Trash").icon("\u{1f5d1}").badge(20).show(ui);
-//! ```
+//! Sidebar navigation row with animated active indicator and hover states.
 
 use crate::colors;
+use crate::helpers;
+use crate::typography::Font;
 
-/// A single sidebar navigation row.
 pub struct NavRow<'a> {
     label: &'a str,
     icon: Option<&'a str>,
@@ -30,19 +21,16 @@ impl<'a> NavRow<'a> {
         }
     }
 
-    /// Leading icon text (emoji or Unicode glyph).
     pub fn icon(mut self, icon: &'a str) -> Self {
         self.icon = Some(icon);
         self
     }
 
-    /// Mark this row as the active/selected item.
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
         self
     }
 
-    /// Show a count badge on the trailing edge.
     pub fn badge(mut self, count: u32) -> Self {
         self.badge = Some(count);
         self
@@ -51,14 +39,18 @@ impl<'a> NavRow<'a> {
     pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
         let row_height = 32.0;
+        let id = ui.auto_id_with(self.label);
 
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), row_height),
             egui::Sense::click(),
         );
 
-        // Background.
-        let bg = if self.active {
+        // Animate active state for smooth bg + indicator transitions.
+        let active_t = helpers::animate_bool(ui, id.with("active"), self.active, 0.15);
+
+        // Background — blend between transparent, hover, and active.
+        let base_bg = if self.active {
             p.active_bg
         } else if response.hovered() {
             p.hover_bg
@@ -68,13 +60,15 @@ impl<'a> NavRow<'a> {
 
         let rounding = egui::CornerRadius::same(6);
         let padded = rect.shrink2(egui::vec2(6.0, 1.0));
-        ui.painter().rect_filled(padded, rounding, bg);
+        ui.painter().rect_filled(padded, rounding, base_bg);
 
-        // Active indicator bar (left edge).
-        if self.active {
+        // Active indicator bar (animated height).
+        if active_t > 0.01 {
+            let bar_height = (padded.height() - 12.0) * active_t;
+            let bar_y = padded.center().y - bar_height / 2.0;
             let bar = egui::Rect::from_min_size(
-                padded.left_top() + egui::vec2(0.0, 6.0),
-                egui::vec2(3.0, padded.height() - 12.0),
+                egui::pos2(padded.left(), bar_y),
+                egui::vec2(3.0, bar_height),
             );
             ui.painter()
                 .rect_filled(bar, egui::CornerRadius::same(1), p.active_indicator);
@@ -93,7 +87,7 @@ impl<'a> NavRow<'a> {
                 egui::pos2(x, padded.center().y),
                 egui::Align2::LEFT_CENTER,
                 icon,
-                egui::FontId::proportional(14.0),
+                egui::FontId::proportional(Font::Body.size()),
                 p.text_muted,
             );
             x += 22.0;
@@ -104,7 +98,7 @@ impl<'a> NavRow<'a> {
             egui::pos2(x, padded.center().y),
             egui::Align2::LEFT_CENTER,
             self.label,
-            egui::FontId::proportional(13.5),
+            egui::FontId::proportional(Font::Callout.size()),
             text_color,
         );
 
@@ -125,7 +119,7 @@ impl<'a> NavRow<'a> {
                 badge_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 &badge_text,
-                egui::FontId::proportional(11.0),
+                egui::FontId::proportional(Font::Caption.size()),
                 p.text_muted,
             );
         }

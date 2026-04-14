@@ -1,11 +1,8 @@
-//! SwiftUI-style button with multiple visual styles.
-//!
-//! ```ignore
-//! Button::new("Create").style(ButtonStyle::BorderedProminent).show(ui);
-//! Button::new("Delete").style(ButtonStyle::Destructive).show(ui);
-//! ```
+//! SwiftUI-style button with multiple visual styles and press feedback.
 
 use crate::colors;
+use crate::ext::ColorExt;
+use crate::typography::Font;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonStyle {
@@ -61,9 +58,9 @@ impl<'a> Button<'a> {
     pub fn show(self, ui: &mut egui::Ui) -> egui::Response {
         let p = colors::palette(ui);
         let font_size = if self.small {
-            crate::typography::Font::Subheadline.size()
+            Font::Subheadline.size()
         } else {
-            crate::typography::Font::Body.size()
+            Font::Body.size()
         };
         let v_pad = if self.small { 3.0 } else { 6.0 };
         let rounding = egui::CornerRadius::same(8);
@@ -75,11 +72,7 @@ impl<'a> Button<'a> {
         };
 
         let (fill, stroke, text_color) = match self.style {
-            ButtonStyle::BorderedProminent => (
-                p.accent,
-                egui::Stroke::NONE,
-                p.text_on_accent,
-            ),
+            ButtonStyle::BorderedProminent => (p.accent, egui::Stroke::NONE, p.text_on_accent),
             ButtonStyle::Bordered => (
                 egui::Color32::TRANSPARENT,
                 egui::Stroke::new(1.0, p.accent),
@@ -90,17 +83,11 @@ impl<'a> Button<'a> {
                 egui::Stroke::NONE,
                 p.accent,
             ),
-            ButtonStyle::Destructive => (
-                p.destructive,
-                egui::Stroke::NONE,
-                p.text_on_accent,
-            ),
+            ButtonStyle::Destructive => (p.destructive, egui::Stroke::NONE, p.text_on_accent),
         };
 
         let btn = egui::Button::new(
-            egui::RichText::new(text)
-                .size(font_size)
-                .color(text_color),
+            egui::RichText::new(text).size(font_size).color(text_color),
         )
         .fill(fill)
         .stroke(stroke)
@@ -113,18 +100,31 @@ impl<'a> Button<'a> {
             ui.add_enabled(false, btn)
         };
 
-        // Hover tint for Bordered/Borderless styles.
-        if response.hovered() && self.enabled {
-            match self.style {
-                ButtonStyle::Bordered | ButtonStyle::Borderless => {
-                    let hover_rect = response.rect;
-                    ui.painter().rect_filled(
-                        hover_rect,
-                        rounding,
-                        crate::ext::ColorExt::opacity(p.accent, 0.06),
-                    );
+        if self.enabled && ui.is_rect_visible(response.rect) {
+            let rect = response.rect;
+            let is_pressed = response.is_pointer_button_down_on();
+
+            if is_pressed {
+                // Press state: darken filled buttons, stronger tint for outline/text buttons.
+                match self.style {
+                    ButtonStyle::BorderedProminent | ButtonStyle::Destructive => {
+                        ui.painter()
+                            .rect_filled(rect, rounding, egui::Color32::BLACK.opacity(0.15));
+                    }
+                    ButtonStyle::Bordered | ButtonStyle::Borderless => {
+                        ui.painter()
+                            .rect_filled(rect, rounding, p.accent.opacity(0.15));
+                    }
                 }
-                _ => {}
+            } else if response.hovered() {
+                // Hover state: subtle tint for outline/text buttons.
+                match self.style {
+                    ButtonStyle::Bordered | ButtonStyle::Borderless => {
+                        ui.painter()
+                            .rect_filled(rect, rounding, p.accent.opacity(0.06));
+                    }
+                    _ => {}
+                }
             }
         }
 

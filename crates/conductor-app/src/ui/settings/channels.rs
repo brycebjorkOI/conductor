@@ -5,8 +5,8 @@ use crate::bridge::SharedState;
 pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
     let p = ui.palette();
 
-    Label::heading("Messaging Channels").show(ui);
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::text!(ui, "Messaging Channels", .title);
+    egui_swift::spacer!(ui, 12.0);
 
     let state = shared.read();
     let channels = state.channels.clone();
@@ -27,18 +27,12 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
 
         for (name, auth_hint) in platforms {
             Card::new().show(ui, |ui| {
-                HStack::new().show(ui, |ui| {
+                egui_swift::hstack!(ui, {
                     StatusDot::new(p.text_muted).show(ui);
                     Label::new(name).font(Font::Callout).bold(true).show(ui);
-                    Label::new("Not configured")
-                        .font(Font::Subheadline)
-                        .muted()
-                        .show(ui);
+                    egui_swift::text!(ui, "Not configured", .subheadline, .muted);
                 });
-                Label::new(&format!("Auth: {auth_hint}"))
-                    .font(Font::Caption)
-                    .secondary()
-                    .show(ui);
+                egui_swift::text!(ui, &format!("Auth: {auth_hint}"), .caption, .secondary);
             });
         }
     } else {
@@ -52,24 +46,12 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
             };
 
             Card::new().border_color(status_color).show(ui, |ui| {
-                HStack::new().show(ui, |ui| {
+                egui_swift::hstack!(ui, {
                     StatusDot::new(status_color).show(ui);
-                    Label::new(&ch.display_name)
-                        .font(Font::Callout)
-                        .bold(true)
-                        .show(ui);
-                    Label::new(&format!("{:?}", ch.connection_state))
-                        .font(Font::Subheadline)
-                        .secondary()
-                        .show(ui);
+                    Label::new(&ch.display_name).font(Font::Callout).bold(true).show(ui);
+                    egui_swift::text!(ui, &format!("{:?}", ch.connection_state), .subheadline, .secondary);
                 });
-                Label::new(&format!(
-                    "Recv: {} | Sent: {}",
-                    ch.stats.messages_received, ch.stats.messages_sent
-                ))
-                .font(Font::Caption)
-                .muted()
-                .show(ui);
+                egui_swift::text!(ui, &format!("Recv: {} | Sent: {}", ch.stats.messages_received, ch.stats.messages_sent), .caption, .muted);
             });
         }
     }

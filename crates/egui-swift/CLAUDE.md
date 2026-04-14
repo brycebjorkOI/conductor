@@ -18,17 +18,28 @@ Single dependency: `egui = "0.31"`. No platform-specific code.
 ```rust
 use egui_swift::prelude::*;
 
-fn main() -> eframe::Result {
-    eframe::run_native("My App", eframe::NativeOptions::default(), Box::new(|cc| {
-        egui_swift::theme::apply_macos_style(&cc.egui_ctx);
-        Ok(Box::new(MyApp::default()))
-    }))
+// app! replaces 15 lines of eframe boilerplate.
+egui_swift::app!(MyApp, "My App Title", 900.0, 600.0);
+
+// view! generates struct + Default + View impl in one block.
+egui_swift::view! {
+    struct SettingsView {
+        dark_mode: bool = false,
+        language: String = "en".to_string(),
+    }
+    fn body(&mut self, ui: &mut egui::Ui) {
+        Label::heading("Settings").show(ui);
+        Spacer::fixed(16.0).show(ui);
+        Section::new().header("Appearance").show(ui, |ui| {
+            Toggle::new(&mut self.dark_mode).label("Dark mode").show(ui);
+            let langs = vec![("en".into(), "English"), ("es".into(), "Spanish")];
+            Picker::new("Language", &mut self.language, &langs).show(ui);
+        });
+    }
 }
 
 #[derive(Default)]
-struct MyApp {
-    settings: SettingsView,
-}
+struct MyApp { settings: SettingsView }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -36,34 +47,110 @@ impl eframe::App for MyApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(p.surface))
             .show(ctx, |ui| {
-                self.settings.show(ui);  // View trait
+                self.settings.show(ui);
             });
-    }
-}
-
-// Each screen is a struct implementing View:
-#[derive(Default)]
-struct SettingsView {
-    dark_mode: bool,
-    language: String,
-}
-
-impl View for SettingsView {
-    fn body(&mut self, ui: &mut egui::Ui) {
-        Label::heading("Settings").show(ui);
-        Spacer::fixed(16.0).show(ui);
-        Form::new().show(ui, |ui| {
-            Section::new().header("Appearance").show(ui, |ui| {
-                Toggle::new(&mut self.dark_mode).label("Dark mode").show(ui);
-                let langs = vec![("en".into(), "English"), ("es".into(), "Spanish")];
-                Picker::new("Language", &mut self.language, &langs).show(ui);
-            });
-        });
     }
 }
 ```
 
-A runnable example is at `examples/settings_app.rs` — run with `cargo run -p egui-swift --example settings_app`.
+Runnable examples:
+- `cargo run -p egui-swift --example hello` — minimal app with all macros
+- `cargo run -p egui-swift --example settings_app` — full settings app
+
+## Macros
+
+### `app!` — App entry point
+
+Generates `main()` + eframe setup + `apply_macos_style()`. Your struct must impl `Default` + `eframe::App`.
+
+```rust
+egui_swift::app!(MyApp, "Title", 900.0, 600.0);  // custom size
+egui_swift::app!(MyApp, "Title");                  // default 800x600
+```
+
+### `view!` — View struct + Default + View impl
+
+Generates the struct with public fields, a `Default` impl from the provided defaults, and a `View` trait impl.
+
+```rust
+egui_swift::view! {
+    pub struct ProfileView {
+        name: String = String::new(),
+        email: String = String::new(),
+    }
+    fn body(&mut self, ui: &mut egui::Ui) {
+        TextField::new(&mut self.name).label("Name").show(ui);
+        TextField::new(&mut self.email).label("Email").show(ui);
+    }
+}
+
+// Use it:
+let mut view = ProfileView::default();
+view.show(ui);
+```
+
+### `hstack!` / `vstack!` — Inline layout
+
+```rust
+egui_swift::hstack!(ui, {
+    Label::new("Left").show(ui);
+    Spacer::trailing(ui, |ui| { Button::new("Right").show(ui); });
+});
+
+egui_swift::vstack!(ui, spacing: 8.0, {
+    Label::heading("Title").show(ui);
+    Label::new("Subtitle").secondary().show(ui);
+});
+```
+
+### `section!` — SwiftUI Section shorthand
+
+Maps directly to SwiftUI's `Section("Header") { content }`.
+
+```rust
+// Section("Appearance") { Toggle("Dark", isOn: $dark) }
+egui_swift::section!(ui, "Appearance", {
+    Toggle::new(&mut self.dark).label("Dark mode").show(ui);
+});
+
+// With footer:
+egui_swift::section!(ui, "Appearance", footer: "Changes apply immediately", {
+    Toggle::new(&mut self.dark).label("Dark mode").show(ui);
+});
+
+// No header:
+egui_swift::section!(ui, {
+    LabeledContent::new("Version", "1.0").show(ui);
+});
+```
+
+### `spacer!` — Quick fixed spacer
+
+```rust
+egui_swift::spacer!(ui, 8.0);    // Spacer::fixed(8.0).show(ui)
+egui_swift::spacer!(ui, 16.0);   // Spacer::fixed(16.0).show(ui)
+```
+
+### `text!` — SwiftUI Text with font/color modifiers
+
+Maps directly to `Text("str").font(.preset).foregroundColor(.semantic)`.
+
+```rust
+// Text("Title").font(.title)
+egui_swift::text!(ui, "Title", .title);
+
+// Text("Hint").font(.caption).foregroundColor(.secondary)
+egui_swift::text!(ui, "Hint", .caption, .secondary);
+
+// Text("Error").foregroundColor(.red)
+egui_swift::text!(ui, "Error", .destructive);
+
+// Plain body text:
+egui_swift::text!(ui, "Hello");
+```
+
+Font presets: `.largeTitle`, `.title`, `.headline`, `.body`, `.callout`, `.subheadline`, `.caption`, `.footnote`
+Color presets: `.secondary`, `.muted`, `.accent`, `.destructive`
 
 ## Architecture
 

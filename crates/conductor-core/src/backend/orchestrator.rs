@@ -21,28 +21,28 @@ pub enum SendOutcome {
     Error(String),
 }
 
-/// Spawn the backend CLI, stream output, and return events.
+/// Spawn the backend CLI and stream events incrementally via a callback.
 ///
-/// This is meant to be called from a tokio task. It does NOT touch the shared
-/// state directly — it returns collected events so the caller can apply them.
-pub async fn run_chat(
+/// Each parsed event is passed to `on_event` AS IT ARRIVES — the UI sees
+/// tokens, tool starts, and thinking chunks in real time. Returns the
+/// final outcome (duration, or cancel/error).
+pub async fn run_chat_streaming(
     backend_def: &dyn BackendDefinition,
     binary_path: &PathBuf,
     params: ChatParams,
     working_dir: Option<PathBuf>,
     env_overrides: &HashMap<String, String>,
     mut cancel_rx: oneshot::Receiver<()>,
+    mut on_event: impl FnMut(StreamEvent),
 ) -> SendOutcome {
     let mut cli_cmd = backend_def.build_chat_command(binary_path, &params);
     if let Some(ref wd) = working_dir {
         cli_cmd.working_dir = Some(wd.clone());
     }
 
-    // Apply environment sanitization.
     let env = security::sanitize_env(env_overrides, security::SanitizeMode::Standard);
     cli_cmd.env = env;
 
-    // Spawn the subprocess.
     let mut child = match spawn_process(&cli_cmd) {
         Ok(c) => c,
         Err(e) => return SendOutcome::Error(format!("failed to spawn process: {e}")),
@@ -55,7 +55,6 @@ pub async fn run_chat(
 
     let start = Instant::now();
     let mut parser = backend_def.create_parser();
-    let mut all_events = Vec::new();
     let mut reader = BufReader::new(stdout).lines();
 
     loop {
@@ -64,11 +63,13 @@ pub async fn run_chat(
                 match line_result {
                     Ok(Some(line)) => {
                         let events = parser.parse_line(&line);
-                        all_events.extend(events);
+                        for event in events {
+                            on_event(event);
+                        }
                     }
-                    Ok(None) => break, // EOF
+                    Ok(None) => break,
                     Err(e) => {
-                        all_events.push(StreamEvent::Error(format!("read error: {e}")));
+                        on_event(StreamEvent::Error(format!("read error: {e}")));
                         break;
                     }
                 }
@@ -80,11 +81,9 @@ pub async fn run_chat(
         }
     }
 
-    // Wait for exit.
     let status = child.wait().await;
     let exit_code = status.map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
 
-    // Read stderr for error info.
     let stderr_text = if let Some(mut stderr) = child.stderr.take() {
         let mut buf = String::new();
         let _ = tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut buf).await;
@@ -94,12 +93,47 @@ pub async fn run_chat(
     };
 
     let final_events = parser.finish(exit_code, &stderr_text);
-    all_events.extend(final_events);
+    for event in final_events {
+        on_event(event);
+    }
 
     let duration_ms = start.elapsed().as_millis() as u64;
     SendOutcome::Completed {
-        events: all_events,
+        events: Vec::new(), // events already delivered via callback
         duration_ms,
+    }
+}
+
+/// Spawn the backend CLI, collect all events, and return them.
+/// Used by the scheduler where real-time streaming isn't needed.
+pub async fn run_chat(
+    backend_def: &dyn BackendDefinition,
+    binary_path: &PathBuf,
+    params: ChatParams,
+    working_dir: Option<PathBuf>,
+    env_overrides: &HashMap<String, String>,
+    cancel_rx: oneshot::Receiver<()>,
+) -> SendOutcome {
+    let mut all_events = Vec::new();
+    let outcome = run_chat_streaming(
+        backend_def,
+        binary_path,
+        params,
+        working_dir,
+        env_overrides,
+        cancel_rx,
+        |event| {
+            all_events.push(event);
+        },
+    )
+    .await;
+
+    match outcome {
+        SendOutcome::Completed { duration_ms, .. } => SendOutcome::Completed {
+            events: all_events,
+            duration_ms,
+        },
+        other => other,
     }
 }
 
@@ -113,7 +147,6 @@ fn spawn_process(
         .stderr(std::process::Stdio::piped())
         .env_clear();
 
-    // Set the sanitized environment.
     for (k, v) in &cmd.env {
         builder.env(k, v);
     }
@@ -125,14 +158,12 @@ fn spawn_process(
     builder.spawn()
 }
 
-/// Determine the best available backend for a message, respecting the
-/// fallback order. Returns (backend_id, binary_path).
+/// Determine the best available backend for a message.
 pub fn select_backend<'a>(
     registry: &'a [BackendStatus],
     preferred_id: &str,
     fallback_order: &[String],
 ) -> Option<(&'a BackendStatus, &'a PathBuf)> {
-    // Try the preferred backend first.
     if let Some(bs) = registry
         .iter()
         .find(|b| b.backend_id == preferred_id && is_available(b))
@@ -142,7 +173,6 @@ pub fn select_backend<'a>(
         }
     }
 
-    // Walk the fallback order.
     for id in fallback_order {
         if let Some(bs) = registry.iter().find(|b| &b.backend_id == id && is_available(b)) {
             if let Some(ref path) = bs.binary_path {
@@ -151,7 +181,6 @@ pub fn select_backend<'a>(
         }
     }
 
-    // Last resort: try any available backend.
     for bs in registry {
         if is_available(bs) {
             if let Some(ref path) = bs.binary_path {

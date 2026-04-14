@@ -42,10 +42,10 @@ impl SettingsView {
             .sidebar_width(160.0)
             .show(ctx, |sidebar, detail| {
                 sidebar.show(|ui| {
-                    Label::heading("Settings").show(ui);
-                    Spacer::fixed(8.0).show(ui);
+                    egui_swift::text!(ui, "Settings", .title);
+                    egui_swift::spacer!(ui, 8.0);
                     Divider::new().show(ui);
-                    Spacer::fixed(8.0).show(ui);
+                    egui_swift::spacer!(ui, 8.0);
 
                     let tabs = [
                         (SettingsTab::About, "About", "info.circle"),
@@ -75,7 +75,7 @@ impl SettingsView {
                     }
 
                     Spacer::bottom(ui, |ui| {
-                        Spacer::fixed(8.0).show(ui);
+                        egui_swift::spacer!(ui, 8.0);
                         if Button::new("Close Settings")
                             .style(ButtonStyle::Bordered)
                             .show(ui)
@@ -83,7 +83,7 @@ impl SettingsView {
                         {
                             let _ = self.tx.send(Action::CloseSettings);
                         }
-                        Spacer::fixed(4.0).show(ui);
+                        egui_swift::spacer!(ui, 4.0);
                     });
                 });
 

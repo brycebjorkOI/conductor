@@ -252,6 +252,7 @@ async fn dispatcher(
                             accumulated_text: String::new(),
                             is_active: true,
                             can_cancel: true,
+                            active_sub_agent: None,
                         });
                         (session.backend_id.clone(), session.model_id.clone())
                     } else {
@@ -348,19 +349,33 @@ async fn dispatcher(
                         .find(|d| d.backend_id() == backend_id_for_spawn)
                         .unwrap();
 
-                    let outcome = orchestrator::run_chat(
+                    // Stream events incrementally — each event is applied to
+                    // state immediately so the UI updates in real time.
+                    let shared_cb = shared_stream.clone();
+                    let sid_cb = sid.clone();
+                    let outcome = orchestrator::run_chat_streaming(
                         def.as_ref(),
                         &binary_for_spawn,
                         params,
                         working_dir,
                         &env_overrides,
                         cancel_rx,
+                        |event| {
+                            apply_single_event(&shared_cb, &sid_cb, event);
+                        },
                     )
                     .await;
 
                     match outcome {
-                        SendOutcome::Completed { events, duration_ms } => {
-                            apply_stream_events(&shared_stream, &sid, &events, duration_ms);
+                        SendOutcome::Completed { duration_ms, .. } => {
+                            // Finalize: set duration on the message.
+                            shared_stream.mutate(|s| {
+                                if let Some(session) = s.sessions.get_mut(&sid) {
+                                    if let Some(msg) = session.messages.last_mut() {
+                                        msg.duration_ms = Some(duration_ms);
+                                    }
+                                }
+                            });
                         }
                         SendOutcome::Cancelled => {
                             shared_stream.mutate(|s| {
@@ -537,6 +552,29 @@ async fn dispatcher(
                 let shared_run = shared.clone();
                 tokio::spawn(async move {
                     run_job_now(shared_run, job_id).await;
+                });
+            }
+
+            Action::ToggleNotifications => {
+                shared.mutate(|s| {
+                    s.notifications_open = !s.notifications_open;
+                    s.settings_open = false; // close settings if open
+                });
+            }
+
+            Action::DismissNotification { id } => {
+                shared.mutate(|s| {
+                    if let Some(n) = s.notifications.iter_mut().find(|n| n.id == id) {
+                        n.dismissed = true;
+                    }
+                });
+            }
+
+            Action::DismissAllNotifications => {
+                shared.mutate(|s| {
+                    for n in &mut s.notifications {
+                        n.dismissed = true;
+                    }
                 });
             }
 
@@ -741,19 +779,46 @@ fn handle_session_command(shared: &SharedState, session_id: &str, cmd: SessionCo
     }
 }
 
-fn apply_stream_events(
-    shared: &SharedState,
-    session_id: &str,
-    events: &[StreamEvent],
-    duration_ms: u64,
-) {
-    for event in events {
-        match event {
-            StreamEvent::TextChunk(text) => {
+/// Apply a single stream event to state immediately (for real-time streaming).
+fn apply_single_event(shared: &SharedState, session_id: &str, event: StreamEvent) {
+    use conductor_core::state::{SubAgentStep, SubStepKind};
+
+    // Check if we're inside a sub-agent scope.
+    let in_sub_agent = {
+        let state = shared.read();
+        state
+            .sessions
+            .get(session_id)
+            .and_then(|s| s.streaming.as_ref())
+            .and_then(|st| st.active_sub_agent.clone())
+    };
+
+    match event {
+        StreamEvent::TextChunk(text) => {
+            if let Some(ref _agent_name) = in_sub_agent {
+                // Inside sub-agent: add as a reasoning step.
+                shared.mutate(|s| {
+                    if let Some(session) = s.sessions.get_mut(session_id) {
+                        // Find the Agent card and add a reasoning sub-step.
+                        if let Some(msg) = session.messages.last_mut() {
+                            if let Some(agent_card) = msg.tool_cards.iter_mut().rev()
+                                .find(|c| c.tool_name == "Agent" && c.phase == ToolPhase::Started)
+                            {
+                                agent_card.sub_steps.push(SubAgentStep {
+                                    kind: SubStepKind::Reasoning,
+                                    content: text.clone(),
+                                    timestamp: chrono::Utc::now(),
+                                });
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Normal: accumulate text in the streaming buffer.
                 shared.mutate(|s| {
                     if let Some(session) = s.sessions.get_mut(session_id) {
                         if let Some(ref mut streaming) = session.streaming {
-                            streaming.accumulated_text.push_str(text);
+                            streaming.accumulated_text.push_str(&text);
                         }
                         if let Some(msg) = session.messages.last_mut() {
                             if msg.status == MessageStatus::Streaming {
@@ -765,108 +830,251 @@ fn apply_stream_events(
                     }
                 });
             }
-            StreamEvent::ToolStart { name, args } => {
+        }
+        StreamEvent::ToolStart { name, args } => {
+            if name == "Agent" {
+                // Entering a sub-agent scope.
                 shared.mutate(|s| {
                     if let Some(session) = s.sessions.get_mut(session_id) {
-                        session.active_tool_cards.push(ToolCard {
+                        if let Some(ref mut streaming) = session.streaming {
+                            streaming.active_sub_agent = Some(name.clone());
+                        }
+                        let card = ToolCard {
                             tool_name: name.clone(),
                             phase: ToolPhase::Started,
                             arguments: args.clone(),
                             result: None,
                             metadata: None,
                             timestamp: chrono::Utc::now(),
-                        });
-                    }
-                });
-            }
-            StreamEvent::ToolResult {
-                name,
-                result,
-                success,
-            } => {
-                shared.mutate(|s| {
-                    if let Some(session) = s.sessions.get_mut(session_id) {
-                        if let Some(card) = session
-                            .active_tool_cards
-                            .iter_mut()
-                            .rev()
-                            .find(|c| c.tool_name == *name)
-                        {
-                            card.phase = if *success {
-                                ToolPhase::Completed
-                            } else {
-                                ToolPhase::Failed
-                            };
-                            card.result = Some(result.clone());
+                            sub_steps: Vec::new(),
+                        };
+                        session.active_tool_cards.push(card.clone());
+                        if let Some(msg) = session.messages.last_mut() {
+                            msg.tool_cards.push(card);
                         }
                     }
                 });
-            }
-            StreamEvent::ThinkingChunk(text) => {
+            } else if in_sub_agent.is_some() {
+                // Inside sub-agent: add tool use as a sub-step.
                 shared.mutate(|s| {
                     if let Some(session) = s.sessions.get_mut(session_id) {
                         if let Some(msg) = session.messages.last_mut() {
-                            let thinking = msg.thinking_content.get_or_insert_with(String::new);
-                            thinking.push_str(text);
-                        }
-                    }
-                });
-            }
-            StreamEvent::UsageData(metrics) => {
-                shared.mutate(|s| {
-                    if let Some(session) = s.sessions.get_mut(session_id) {
-                        if let Some(msg) = session.messages.last_mut() {
-                            msg.usage = Some(metrics.clone());
-                        }
-                        // Accumulate totals.
-                        if let Some(input) = metrics.input_tokens {
-                            session.usage_totals.total_input_tokens += input;
-                        }
-                        if let Some(output) = metrics.output_tokens {
-                            session.usage_totals.total_output_tokens += output;
-                        }
-                        if let Some(cost) = metrics.estimated_cost {
-                            session.usage_totals.total_cost += cost;
-                        }
-                    }
-                });
-            }
-            StreamEvent::Error(msg) => {
-                shared.mutate(|s| {
-                    if let Some(session) = s.sessions.get_mut(session_id) {
-                        if let Some(last) = session.messages.last_mut() {
-                            if last.status == MessageStatus::Streaming {
-                                last.content.push_str(&format!("\n\nError: {msg}"));
-                                last.status = MessageStatus::Error;
+                            if let Some(agent_card) = msg.tool_cards.iter_mut().rev()
+                                .find(|c| c.tool_name == "Agent" && c.phase == ToolPhase::Started)
+                            {
+                                agent_card.sub_steps.push(SubAgentStep {
+                                    kind: SubStepKind::ToolUse(name.clone()),
+                                    content: String::new(),
+                                    timestamp: chrono::Utc::now(),
+                                });
                             }
                         }
-                        session.streaming = None;
+                        // Also track in active_tool_cards for result matching.
+                        let card = ToolCard {
+                            tool_name: name.clone(),
+                            phase: ToolPhase::Started,
+                            arguments: args.clone(),
+                            result: None,
+                            metadata: None,
+                            timestamp: chrono::Utc::now(),
+                            sub_steps: Vec::new(),
+                        };
+                        session.active_tool_cards.push(card);
                     }
-                    s.tray_state = TrayState::Idle;
                 });
-            }
-            StreamEvent::Done => {
+            } else {
+                // Normal top-level tool use.
                 shared.mutate(|s| {
                     if let Some(session) = s.sessions.get_mut(session_id) {
+                        let card = ToolCard {
+                            tool_name: name.clone(),
+                            phase: ToolPhase::Started,
+                            arguments: args.clone(),
+                            result: None,
+                            metadata: None,
+                            timestamp: chrono::Utc::now(),
+                            sub_steps: Vec::new(),
+                        };
+                        session.active_tool_cards.push(card.clone());
                         if let Some(msg) = session.messages.last_mut() {
-                            if msg.status == MessageStatus::Streaming {
-                                msg.status = MessageStatus::Complete;
-                                msg.duration_ms = Some(duration_ms);
-                            }
+                            msg.tool_cards.push(card);
                         }
-                        // Move tool cards to the message.
-                        if let Some(msg) = session.messages.last_mut() {
-                            msg.tool_cards
-                                .extend(session.active_tool_cards.drain(..));
-                        }
-                        session.streaming = None;
-                        session.usage_totals.message_count += 1;
                     }
-                    s.tray_state = TrayState::Idle;
                 });
             }
         }
+        StreamEvent::ToolResult {
+            name,
+            result,
+            success,
+        } => {
+            let phase = if success { ToolPhase::Completed } else { ToolPhase::Failed };
+
+            if in_sub_agent.is_some() && name != "Agent" {
+                // Sub-agent internal tool result — add as sub-step.
+                shared.mutate(|s| {
+                    if let Some(session) = s.sessions.get_mut(session_id) {
+                        // Update the sub-tool's card.
+                        if let Some(card) = session.active_tool_cards.iter_mut().rev()
+                            .find(|c| c.tool_name == name)
+                        {
+                            card.phase = phase;
+                            card.result = Some(result.clone());
+                        }
+                        // Add result as sub-step to the Agent card.
+                        if let Some(msg) = session.messages.last_mut() {
+                            if let Some(agent_card) = msg.tool_cards.iter_mut().rev()
+                                .find(|c| c.tool_name == "Agent" && c.phase == ToolPhase::Started)
+                            {
+                                let truncated = if result.len() > 200 {
+                                    format!("{}...", &result[..197])
+                                } else {
+                                    result.clone()
+                                };
+                                agent_card.sub_steps.push(SubAgentStep {
+                                    kind: SubStepKind::ToolResult,
+                                    content: truncated,
+                                    timestamp: chrono::Utc::now(),
+                                });
+                            }
+                        }
+                    }
+                });
+            } else if name == "Agent" || (in_sub_agent.is_some() && name == "sub_agent_tool") {
+                // Agent tool result — complete the sub-agent and exit scope.
+                shared.mutate(|s| {
+                    if let Some(session) = s.sessions.get_mut(session_id) {
+                        if let Some(ref mut streaming) = session.streaming {
+                            streaming.active_sub_agent = None;
+                        }
+                        // Mark Agent card as completed.
+                        if let Some(card) = session.active_tool_cards.iter_mut().rev()
+                            .find(|c| c.tool_name == "Agent")
+                        {
+                            card.phase = phase;
+                            card.result = Some(result.clone());
+                        }
+                        if let Some(msg) = session.messages.last_mut() {
+                            if let Some(card) = msg.tool_cards.iter_mut().rev()
+                                .find(|c| c.tool_name == "Agent")
+                            {
+                                card.phase = phase;
+                                card.result = Some(result.clone());
+                                card.sub_steps.push(SubAgentStep {
+                                    kind: SubStepKind::Done,
+                                    content: "Done".to_string(),
+                                    timestamp: chrono::Utc::now(),
+                                });
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Normal top-level tool result.
+                shared.mutate(|s| {
+                    if let Some(session) = s.sessions.get_mut(session_id) {
+                        if let Some(card) = session.active_tool_cards.iter_mut().rev()
+                            .find(|c| c.tool_name == name)
+                        {
+                            card.phase = phase;
+                            card.result = Some(result.clone());
+                        }
+                        if let Some(msg) = session.messages.last_mut() {
+                            if let Some(card) = msg.tool_cards.iter_mut().rev()
+                                .find(|c| c.tool_name == name)
+                            {
+                                card.phase = phase;
+                                card.result = Some(result.clone());
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        StreamEvent::ThinkingChunk(text) => {
+            shared.mutate(|s| {
+                if let Some(session) = s.sessions.get_mut(session_id) {
+                    if let Some(msg) = session.messages.last_mut() {
+                        let thinking = msg.thinking_content.get_or_insert_with(String::new);
+                        thinking.push_str(&text);
+                    }
+                }
+            });
+        }
+        StreamEvent::UsageData(metrics) => {
+            shared.mutate(|s| {
+                if let Some(session) = s.sessions.get_mut(session_id) {
+                    if let Some(msg) = session.messages.last_mut() {
+                        msg.usage = Some(metrics.clone());
+                    }
+                    if let Some(input) = metrics.input_tokens {
+                        session.usage_totals.total_input_tokens += input;
+                    }
+                    if let Some(output) = metrics.output_tokens {
+                        session.usage_totals.total_output_tokens += output;
+                    }
+                    if let Some(cost) = metrics.estimated_cost {
+                        session.usage_totals.total_cost += cost;
+                    }
+                }
+            });
+        }
+        StreamEvent::Error(msg) => {
+            shared.mutate(|s| {
+                if let Some(session) = s.sessions.get_mut(session_id) {
+                    if let Some(last) = session.messages.last_mut() {
+                        if last.status == MessageStatus::Streaming {
+                            last.content.push_str(&format!("\n\nError: {msg}"));
+                            last.status = MessageStatus::Error;
+                        }
+                    }
+                    session.streaming = None;
+                }
+                s.tray_state = TrayState::Idle;
+            });
+        }
+        StreamEvent::Done => {
+            shared.mutate(|s| {
+                if let Some(session) = s.sessions.get_mut(session_id) {
+                    if let Some(msg) = session.messages.last_mut() {
+                        if msg.status == MessageStatus::Streaming {
+                            msg.status = MessageStatus::Complete;
+                        }
+                    }
+                    // Sync final tool card state from active_tool_cards.
+                    if let Some(msg) = session.messages.last_mut() {
+                        // Replace message tool cards with final active state
+                        // (they may have been updated with results).
+                        msg.tool_cards = session.active_tool_cards.drain(..).collect();
+                    }
+                    session.streaming = None;
+                    session.usage_totals.message_count += 1;
+                }
+                s.tray_state = TrayState::Idle;
+            });
+        }
     }
+}
+
+/// Apply a batch of stream events (used by scheduler for non-streaming jobs).
+#[allow(dead_code)]
+fn apply_stream_events(
+    shared: &SharedState,
+    session_id: &str,
+    events: &[StreamEvent],
+    duration_ms: u64,
+) {
+    for event in events {
+        apply_single_event(shared, session_id, event.clone());
+    }
+    // Set duration after all events applied.
+    shared.mutate(|s| {
+        if let Some(session) = s.sessions.get_mut(session_id) {
+            if let Some(msg) = session.messages.last_mut() {
+                msg.duration_ms = Some(duration_ms);
+            }
+        }
+    });
 }
 
 async fn run_backend_scan(shared: SharedState) {

@@ -3,8 +3,8 @@ use egui_swift::prelude::*;
 use crate::bridge::SharedState;
 
 pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
-    Label::heading("MCP Server Configuration").show(ui);
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::text!(ui, "MCP Server Configuration", .title);
+    egui_swift::spacer!(ui, 12.0);
 
     let state = shared.read();
     let registry = state.backend_registry.clone();
@@ -28,71 +28,47 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState) {
     }
 
     for backend_id in &supported {
-        Section::new()
-            .header(&format!("Backend: {backend_id}"))
-            .show(ui, |ui| {
-                let transports = conductor_core::mcp::supported_transports(backend_id);
-                Label::new(&format!(
-                    "Transports: {}",
-                    transports
-                        .iter()
-                        .map(|t| format!("{t:?}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
-                .font(Font::Caption)
-                .secondary()
-                .show(ui);
+        egui_swift::section!(ui, &format!("Backend: {backend_id}"), {
+            let transports = conductor_core::mcp::supported_transports(backend_id);
+            egui_swift::text!(ui, &format!(
+                "Transports: {}",
+                transports.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(", ")
+            ), .caption, .secondary);
 
-                let servers = mcp_servers.get(*backend_id);
-                if let Some(servers) = servers {
-                    for server in servers {
-                        Card::new().show(ui, |ui| {
-                            HStack::new().show(ui, |ui| {
-                                Label::new(&server.name)
-                                    .font(Font::Callout)
-                                    .bold(true)
-                                    .show(ui);
-                                Label::new(&format!("{:?}", server.transport))
-                                    .font(Font::Caption)
-                                    .monospace(true)
-                                    .muted()
-                                    .show(ui);
-                            });
-                            if let Some(ref cmd) = server.command {
-                                Label::new(&format!("Command: {cmd}"))
-                                    .font(Font::Caption)
-                                    .monospace(true)
-                                    .secondary()
-                                    .show(ui);
-                            }
-                            if let Some(ref url) = server.url {
-                                Label::new(&format!("URL: {url}"))
-                                    .font(Font::Caption)
-                                    .monospace(true)
-                                    .secondary()
-                                    .show(ui);
-                            }
+            let servers = mcp_servers.get(*backend_id);
+            if let Some(servers) = servers {
+                for server in servers {
+                    Card::new().show(ui, |ui| {
+                        egui_swift::hstack!(ui, {
+                            Label::new(&server.name).font(Font::Callout).bold(true).show(ui);
+                            Label::new(&format!("{:?}", server.transport))
+                                .font(Font::Caption).monospace(true).muted().show(ui);
                         });
-                    }
-                } else {
-                    Label::new("No MCP servers configured for this backend.")
-                        .font(Font::Subheadline)
-                        .muted()
-                        .show(ui);
+                        if let Some(ref cmd) = server.command {
+                            Label::new(&format!("Command: {cmd}"))
+                                .font(Font::Caption).monospace(true).secondary().show(ui);
+                        }
+                        if let Some(ref url) = server.url {
+                            Label::new(&format!("URL: {url}"))
+                                .font(Font::Caption).monospace(true).secondary().show(ui);
+                        }
+                    });
                 }
+            } else {
+                egui_swift::text!(ui, "No MCP servers configured for this backend.", .subheadline, .muted);
+            }
 
-                Spacer::fixed(4.0).show(ui);
-                if Button::new("+ Add MCP Server")
-                    .style(ButtonStyle::Bordered)
-                    .small(true)
-                    .show(ui)
-                    .clicked()
-                {
-                    // TODO: open add server form
-                }
-            });
+            egui_swift::spacer!(ui, 4.0);
+            if Button::new("+ Add MCP Server")
+                .style(ButtonStyle::Bordered)
+                .small(true)
+                .show(ui)
+                .clicked()
+            {
+                // TODO: open add server form
+            }
+        });
 
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
     }
 }

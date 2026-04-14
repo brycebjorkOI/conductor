@@ -16,6 +16,7 @@ pub struct ConductorApp {
     header: ui::chat::header::HeaderView,
     input_bar: ui::chat::input_bar::InputBarView,
     settings: ui::settings::SettingsView,
+    notifications: ui::notifications::NotificationsView,
 }
 
 impl ConductorApp {
@@ -45,7 +46,8 @@ impl ConductorApp {
             sidebar: ui::sidebar::SidebarView::new(shared.clone(), tx.clone()),
             header: ui::chat::header::HeaderView::new(shared.clone(), tx.clone()),
             input_bar: ui::chat::input_bar::InputBarView::new(tx.clone()),
-            settings: ui::settings::SettingsView::new(shared.clone(), tx),
+            settings: ui::settings::SettingsView::new(shared.clone(), tx.clone()),
+            notifications: ui::notifications::NotificationsView::new(shared.clone(), tx),
         }
     }
 }
@@ -57,6 +59,29 @@ impl eframe::App for ConductorApp {
         // Settings view.
         if self.shared.read().settings_open {
             self.settings.show_ctx(ctx);
+            return;
+        }
+
+        // Notifications view.
+        if self.shared.read().notifications_open {
+            // Show sidebar + notifications panel.
+            if self.header.sidebar_open {
+                SidebarPanel::new()
+                    .width(Layout::SIDEBAR_WIDTH)
+                    .show(ctx, |ui| {
+                        self.sidebar.show(ui);
+                    });
+            }
+
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::NONE
+                        .fill(p.surface)
+                        .inner_margin(egui::Margin::symmetric(24, 24)),
+                )
+                .show(ctx, |ui| {
+                    self.notifications.show(ui);
+                });
             return;
         }
 
@@ -125,36 +150,35 @@ impl eframe::App for ConductorApp {
                 .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
                     let available_height = ui.available_height();
-                    VStack::new().show(ui, |ui| {
-                        Spacer::fixed(available_height * 0.28).show(ui);
+                    let available_width = ui.available_width();
+                    let top_space = (available_height * 0.18).max(40.0);
+                    // Responsive: use a minimum margin of 24px on each side,
+                    // and cap content at MAX_CONTENT_WIDTH.
+                    let min_margin = 24.0;
+                    let content_width = (available_width - min_margin * 2.0).min(Layout::MAX_CONTENT_WIDTH).max(200.0);
+                    let side = (available_width - content_width) / 2.0;
 
-                        ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
+                    ui.add_space(top_space);
+
+                    // Center greeting + input horizontally.
+                    ui.horizontal(|ui| {
+                        ui.add_space(side);
+                        ui.vertical(|ui| {
+                            ui.set_max_width(content_width);
+
                             ui.vertical_centered(|ui| {
                                 let greeting = time_greeting();
                                 Label::new(&format!("{}  {greeting}", icons::SPARKLE))
                                     .font(Font::LargeTitle)
                                     .show(ui);
                             });
+
+                            egui_swift::spacer!(ui, 16.0);
+
+                            self.input_bar
+                                .show_for_session(ui, is_streaming, &active_sid);
                         });
-
-                        Spacer::fixed(24.0).show(ui);
-
-                        self.input_bar
-                            .show_for_session(ui, is_streaming, &active_sid);
-
-                        Spacer::fixed(16.0).show(ui);
-
-                        ui.vertical_centered(|ui| {
-                            suggestion_chip::chip_row(
-                                ui,
-                                &[
-                                    ("\u{270f}", "Write"),
-                                    ("\u{1f4d6}", "Learn"),
-                                    ("</>", "Code"),
-                                    ("\u{1f4a1}", "Brainstorm"),
-                                ],
-                            );
-                        });
+                        ui.add_space(side);
                     });
                 });
         }

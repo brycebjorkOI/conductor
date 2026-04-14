@@ -48,7 +48,7 @@ pub fn show(
     drop(state);
 
     // Header row.
-    HStack::new().show(ui, |ui| {
+    egui_swift::hstack!(ui, {
         Label::heading("Scheduled Tasks").show(ui);
         Spacer::trailing(ui, |ui| {
             if Button::new("+ Add Job")
@@ -62,7 +62,7 @@ pub fn show(
         });
     });
 
-    Spacer::fixed(4.0).show(ui);
+    egui_swift::spacer!(ui, 4.0);
     Label::new(&format!(
         "{} job{}",
         jobs.len(),
@@ -71,14 +71,14 @@ pub fn show(
     .font(Font::Subheadline)
     .secondary()
     .show(ui);
-    Spacer::fixed(8.0).show(ui);
+    egui_swift::spacer!(ui, 8.0);
 
     // -- Add Job form --
     if tab_state.show_add_form {
         show_add_form(ui, tx, tab_state, &p);
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
         Divider::new().show(ui);
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
     }
 
     // -- Job list --
@@ -108,14 +108,14 @@ fn show_add_form(
             .font(Font::Headline)
             .bold(true)
             .show(ui);
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
 
         // Name.
         TextField::new(&mut form.name)
             .label("Name")
             .placeholder("Job name")
             .show(ui);
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
 
         // Schedule type.
         FormSection::new().header("Schedule").show(ui, |ui| {
@@ -124,11 +124,11 @@ fn show_add_form(
             RadioGroup::new(&mut form.schedule_type, &schedule_types).show(ui);
         });
 
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
 
         match form.schedule_type {
             1 => {
-                HStack::new().show(ui, |ui| {
+                egui_swift::hstack!(ui, {
                     Label::new("Every").font(Font::Callout).show(ui);
                     ui.add(
                         egui::DragValue::new(&mut form.interval_minutes).range(1..=10080),
@@ -154,7 +154,7 @@ fn show_add_form(
             }
         }
 
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
 
         // Prompt.
         TextField::new(&mut form.prompt)
@@ -162,7 +162,7 @@ fn show_add_form(
             .placeholder("What should the AI do?")
             .multiline(3)
             .show(ui);
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
 
         // Execution mode.
         FormSection::new().header("Execution Mode").show(ui, |ui| {
@@ -170,7 +170,7 @@ fn show_add_form(
             RadioGroup::new(&mut form.execution_mode, &exec_modes).show(ui);
         });
 
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
 
         // Delivery.
         FormSection::new().header("Delivery").show(ui, |ui| {
@@ -180,14 +180,14 @@ fn show_add_form(
         });
 
         if form.delivery_mode == 1 {
-            Spacer::fixed(4.0).show(ui);
+            egui_swift::spacer!(ui, 4.0);
             TextField::new(&mut form.webhook_url)
                 .label("Webhook URL")
                 .placeholder("https://...")
                 .show(ui);
         }
 
-        Spacer::fixed(12.0).show(ui);
+        egui_swift::spacer!(ui, 12.0);
 
         // Buttons.
         let can_create = !form.name.trim().is_empty() && !form.prompt.trim().is_empty();
@@ -260,7 +260,7 @@ fn show_job_card(
 
     Card::new().show(ui, |ui| {
         // Top row: status + name + schedule.
-        HStack::new().show(ui, |ui| {
+        egui_swift::hstack!(ui, {
             StatusDot::new(status_color).show(ui);
             Label::new(&job.name).font(Font::Callout).bold(true).show(ui);
             Label::new(&format_schedule(&job.schedule))
@@ -286,10 +286,10 @@ fn show_job_card(
             .secondary()
             .show(ui);
 
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
 
         // Action buttons.
-        HStack::new().show(ui, |ui| {
+        egui_swift::hstack!(ui, {
             if Button::new("Run Now")
                 .style(ButtonStyle::Bordered)
                 .small(true)
@@ -339,7 +339,7 @@ fn show_job_card(
                         JobRunStatus::Cancelled => ("\u{2014}", p.text_muted),
                     };
 
-                    HStack::new().show(ui, |ui| {
+                    egui_swift::hstack!(ui, {
                         ui.label(
                             egui::RichText::new(status_icon)
                                 .color(run_color)

@@ -10,43 +10,38 @@ pub fn show(
     shared: &SharedState,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    Label::heading("Permissions").show(ui);
-    Spacer::fixed(16.0).show(ui);
+    egui_swift::text!(ui, "Permissions", .title);
+    egui_swift::spacer!(ui, 16.0);
 
     let mut config = shared.read().config.clone();
     let mut changed = false;
 
-    Section::new()
-        .header("Execution Approval Mode")
-        .show(ui, |ui| {
-            let modes: Vec<(String, &str)> = vec![
-                ("deny".into(), "Deny All \u{2014} reject all tool execution"),
-                ("ask".into(), "Ask \u{2014} confirm every tool invocation"),
-                (
-                    "allowlist".into(),
-                    "Allowlist \u{2014} auto-approve matching rules, ask for others",
-                ),
-                (
-                    "auto".into(),
-                    "Full Auto \u{2014} approve all (trusted environments only)",
-                ),
-            ];
-            RadioGroup::new(&mut config.security.execution_mode, &modes).show(ui);
-            changed = true;
-        });
+    egui_swift::section!(ui, "Execution Approval Mode", {
+        let modes: Vec<(String, &str)> = vec![
+            ("deny".into(), "Deny All \u{2014} reject all tool execution"),
+            ("ask".into(), "Ask \u{2014} confirm every tool invocation"),
+            (
+                "allowlist".into(),
+                "Allowlist \u{2014} auto-approve matching rules, ask for others",
+            ),
+            (
+                "auto".into(),
+                "Full Auto \u{2014} approve all (trusted environments only)",
+            ),
+        ];
+        RadioGroup::new(&mut config.security.execution_mode, &modes).show(ui);
+        changed = true;
+    });
 
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
 
-    Section::new().header("Allowlist Rules").show(ui, |ui| {
+    egui_swift::section!(ui, "Allowlist Rules", {
         if config.security.allow_rules.is_empty() {
-            Label::new("No rules configured.")
-                .font(Font::Subheadline)
-                .muted()
-                .show(ui);
+            egui_swift::text!(ui, "No rules configured.", .subheadline, .muted);
         } else {
             let mut to_remove = None;
             for (i, rule) in config.security.allow_rules.iter().enumerate() {
-                HStack::new().show(ui, |ui| {
+                egui_swift::hstack!(ui, {
                     Label::new(rule)
                         .font(Font::Subheadline)
                         .monospace(true)
@@ -69,13 +64,8 @@ pub fn show(
             }
         }
 
-        Spacer::fixed(4.0).show(ui);
-        Label::new(
-            "Format: tool_name glob_pattern (e.g. \"file_read *\", \"shell_exec cargo *\")",
-        )
-        .font(Font::Caption)
-        .muted()
-        .show(ui);
+        egui_swift::spacer!(ui, 4.0);
+        egui_swift::text!(ui, "Format: tool_name glob_pattern (e.g. \"file_read *\", \"shell_exec cargo *\")", .caption, .muted);
     });
 
     if changed {

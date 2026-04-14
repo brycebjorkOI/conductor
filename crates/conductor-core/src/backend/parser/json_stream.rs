@@ -209,6 +209,52 @@ impl StreamParser for JsonStreamParser {
                 vec![StreamEvent::Error(msg)]
             }
 
+            // -- User events (tool results from sub-agent internal calls) --
+            "user" => {
+                let mut events = Vec::new();
+
+                // Extract tool_use_result if present.
+                if let Some(tr) = obj.get("tool_use_result") {
+                    let content = extract_tool_result_content(tr);
+                    if !content.is_empty() {
+                        // Use the tool_use_id to find the tool name, but we
+                        // don't have that mapping here. Emit as a generic result.
+                        events.push(StreamEvent::ToolResult {
+                            name: "sub_agent_tool".to_string(),
+                            result: content,
+                            success: true,
+                        });
+                    }
+                }
+
+                // Also check message.content for tool_result blocks.
+                if let Some(message) = obj.get("message") {
+                    if let Some(content_arr) = message.get("content").and_then(|v| v.as_array()) {
+                        for block in content_arr {
+                            let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                            if block_type == "tool_result" {
+                                let content = block
+                                    .get("content")
+                                    .map(|v| extract_tool_result_content(v))
+                                    .unwrap_or_default();
+                                if !content.is_empty() {
+                                    events.push(StreamEvent::ToolResult {
+                                        name: "sub_agent_tool".to_string(),
+                                        result: content,
+                                        success: !block
+                                            .get("is_error")
+                                            .and_then(|v| v.as_bool())
+                                            .unwrap_or(false),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                events
+            }
+
             // -- Events we intentionally skip --
             "system" | "rate_limit_event" => Vec::new(),
 
@@ -235,6 +281,46 @@ impl StreamParser for JsonStreamParser {
         events.push(StreamEvent::Done);
         events
     }
+}
+
+/// Extract text content from a tool_use_result, which can be either a string
+/// or an array of `[{"type":"text","text":"..."}]`.
+fn extract_tool_result_content(value: &serde_json::Value) -> String {
+    if let Some(s) = value.as_str() {
+        return s.to_string();
+    }
+    if let Some(content) = value.get("content") {
+        if let Some(s) = content.as_str() {
+            return s.to_string();
+        }
+        if let Some(arr) = content.as_array() {
+            let texts: Vec<&str> = arr
+                .iter()
+                .filter_map(|item| {
+                    if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+                        item.get("text").and_then(|v| v.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            return texts.join("\n");
+        }
+    }
+    if let Some(arr) = value.as_array() {
+        let texts: Vec<&str> = arr
+            .iter()
+            .filter_map(|item| {
+                if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    item.get("text").and_then(|v| v.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        return texts.join("\n");
+    }
+    String::new()
 }
 
 fn parse_usage(usage: &serde_json::Value) -> UsageMetrics {

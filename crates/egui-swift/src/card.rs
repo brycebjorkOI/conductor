@@ -1,10 +1,7 @@
-//! Rounded card container with optional border color and shadow.
-//!
-//! ```ignore
-//! Card::new().border_color(green).shadow(true).show(ui, |ui| { ... });
-//! ```
+//! Rounded card container with optional border, shadow, and hover feedback.
 
 use crate::colors;
+use crate::ext::ColorExt;
 use crate::helpers;
 use crate::theme::Layout;
 
@@ -47,15 +44,7 @@ impl Card {
         let rounding = egui::CornerRadius::same(Layout::CARD_RADIUS as u8);
         let stroke_color = self.border_color.unwrap_or(p.border_subtle);
 
-        // Reserve space for the outer margin between stacked cards.
         ui.add_space(3.0);
-
-        if self.shadow {
-            // We need to paint the shadow before the frame. Allocate a rect first
-            // by measuring the content inside a temporary scope. Since we can't
-            // easily do two-pass in egui, we apply shadow as a background paint
-            // after the frame via the response rect.
-        }
 
         let frame = egui::Frame::NONE
             .fill(p.card_bg)
@@ -69,8 +58,22 @@ impl Card {
             })
             .response;
 
-        if self.shadow && ui.is_rect_visible(resp.rect) {
-            helpers::paint_shadow(ui, resp.rect, rounding, 4.0, p.shadow);
+        if ui.is_rect_visible(resp.rect) {
+            // Hover: lighten background.
+            if resp.hovered() {
+                ui.painter().rect_filled(
+                    resp.rect,
+                    rounding,
+                    p.hover_bg.opacity(0.3),
+                );
+            }
+
+            // Shadow (paint behind — egui draws back-to-front so this overlaps,
+            // but at low alpha it's a subtle glow effect).
+            if self.shadow {
+                let spread = if resp.hovered() { 6.0 } else { 4.0 };
+                helpers::paint_shadow(ui, resp.rect, rounding, spread, p.shadow);
+            }
         }
 
         ui.add_space(3.0);

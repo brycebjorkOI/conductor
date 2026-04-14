@@ -1,15 +1,12 @@
 use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
-    Label::heading("Debug & Diagnostics").show(ui);
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::text!(ui, "Debug & Diagnostics", .title);
+    egui_swift::spacer!(ui, 12.0);
 
-    Section::new().header("Tools").show(ui, |ui| {
-        Label::new("Log viewer and diagnostics will be available here.")
-            .font(Font::Callout)
-            .secondary()
-            .show(ui);
-        Spacer::fixed(8.0).show(ui);
+    egui_swift::section!(ui, "Tools", {
+        egui_swift::text!(ui, "Log viewer and diagnostics will be available here.", .callout, .secondary);
+        egui_swift::spacer!(ui, 8.0);
         if Button::new("Export Diagnostics")
             .style(ButtonStyle::Bordered)
             .show(ui)

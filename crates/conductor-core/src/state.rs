@@ -18,6 +18,7 @@ pub struct AppState {
     pub panel_visible: bool,
     pub settings_open: bool,
     pub settings_tab: SettingsTab,
+    pub notifications_open: bool,
 
     pub active_session_id: SessionId,
     pub sessions: HashMap<SessionId, Session>,
@@ -56,6 +57,7 @@ impl Default for AppState {
             panel_visible: true,
             settings_open: false,
             settings_tab: SettingsTab::About,
+            notifications_open: false,
             active_session_id: session_id,
             sessions,
             backend_registry: Vec::new(),
@@ -347,6 +349,10 @@ pub struct StreamingState {
     pub accumulated_text: String,
     pub is_active: bool,
     pub can_cancel: bool,
+    /// When inside a sub-agent call, this holds the Agent tool's name
+    /// so subsequent events can be routed to its sub_steps.
+    #[serde(default)]
+    pub active_sub_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -357,6 +363,9 @@ pub struct ToolCard {
     pub result: Option<String>,
     pub metadata: Option<HashMap<String, String>>,
     pub timestamp: DateTime<Utc>,
+    /// Internal steps for sub-agent tool calls (Agent tool_use).
+    #[serde(default)]
+    pub sub_steps: Vec<SubAgentStep>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,6 +373,27 @@ pub enum ToolPhase {
     Started,
     Completed,
     Failed,
+}
+
+/// A single step inside a sub-agent's execution timeline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubAgentStep {
+    pub kind: SubStepKind,
+    pub content: String,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// What kind of step this is inside a sub-agent flow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SubStepKind {
+    /// Sub-agent called a tool (name).
+    ToolUse(String),
+    /// Tool returned a result.
+    ToolResult,
+    /// Sub-agent reasoning/text.
+    Reasoning,
+    /// Sub-agent completed.
+    Done,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -25,6 +25,10 @@ pub mod prelude;
 // Core trait
 pub mod view;
 
+// Macros (app!, view!, hstack!, vstack!)
+#[macro_use]
+pub mod macros;
+
 // SwiftUI compatibility aliases
 pub mod swiftui_compat;
 

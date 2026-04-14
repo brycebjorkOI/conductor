@@ -28,7 +28,7 @@ pub fn show(
     let fallback = state.fallback_order.clone();
     drop(state);
 
-    HStack::new().show(ui, |ui| {
+    egui_swift::hstack!(ui, {
         Label::heading("Backends").show(ui);
         Spacer::trailing(ui, |ui| {
             if Button::new("Rescan")
@@ -41,13 +41,13 @@ pub fn show(
             }
         });
     });
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
 
     for backend in &registry {
         let color = discovery_color(backend.discovery_state, &p);
 
         Card::new().border_color(color).show(ui, |ui| {
-            HStack::new().show(ui, |ui| {
+            egui_swift::hstack!(ui, {
                 StatusDot::new(color).show(ui);
                 let version = backend.version.as_deref().unwrap_or("");
                 let title = if version.is_empty() {
@@ -61,63 +61,42 @@ pub fn show(
             match backend.discovery_state {
                 DiscoveryState::Found => {
                     if let Some(ref path) = backend.binary_path {
-                        Label::new(&format!("Path: {}", path.display()))
-                            .font(Font::Subheadline)
-                            .secondary()
-                            .show(ui);
+                        egui_swift::text!(ui, &format!("Path: {}", path.display()), .subheadline, .secondary);
                     }
-                    Label::new(&format!("Auth: {:?}", backend.auth_state))
-                        .font(Font::Subheadline)
-                        .secondary()
-                        .show(ui);
+                    egui_swift::text!(ui, &format!("Auth: {:?}", backend.auth_state), .subheadline, .secondary);
                     if !backend.available_models.is_empty() {
                         let names: Vec<&str> = backend
                             .available_models
                             .iter()
                             .map(|m| m.display_name.as_str())
                             .collect();
-                        Label::new(&format!("Models: {}", names.join(", ")))
-                            .font(Font::Subheadline)
-                            .secondary()
-                            .show(ui);
+                        egui_swift::text!(ui, &format!("Models: {}", names.join(", ")), .subheadline, .secondary);
                     }
                 }
                 DiscoveryState::NotFound => {
-                    Label::new("Not installed")
-                        .font(Font::Subheadline)
-                        .muted()
-                        .show(ui);
+                    egui_swift::text!(ui, "Not installed", .subheadline, .muted);
                 }
                 DiscoveryState::Scanning => {
-                    HStack::new().show(ui, |ui| {
+                    egui_swift::hstack!(ui, {
                         ProgressIndicator::spinner().size(16.0).show(ui);
-                        Label::new("Scanning...")
-                            .font(Font::Subheadline)
-                            .muted()
-                            .show(ui);
+                        egui_swift::text!(ui, "Scanning...", .subheadline, .muted);
                     });
                 }
                 DiscoveryState::Error => {
-                    Label::new("Error during discovery")
-                        .font(Font::Subheadline)
-                        .destructive()
-                        .show(ui);
+                    egui_swift::text!(ui, "Error during discovery", .subheadline, .muted);
                 }
                 DiscoveryState::NotScanned => {
-                    Label::new("Not yet scanned")
-                        .font(Font::Subheadline)
-                        .muted()
-                        .show(ui);
+                    egui_swift::text!(ui, "Not yet scanned", .subheadline, .muted);
                 }
             }
         });
     }
 
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
     Divider::new().show(ui);
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
 
-    FormSection::new().header("Default Backend").show(ui, |ui| {
+    egui_swift::section!(ui, "Default Backend", {
         let current = default_id.as_deref().unwrap_or("none");
         egui::ComboBox::from_id_salt("default_backend")
             .selected_text(current)
@@ -140,13 +119,10 @@ pub fn show(
             });
     });
 
-    Spacer::fixed(8.0).show(ui);
-    FormSection::new().header("Fallback Order").show(ui, |ui| {
+    egui_swift::spacer!(ui, 8.0);
+    egui_swift::section!(ui, "Fallback Order", {
         if fallback.is_empty() {
-            Label::new("No fallback backends configured.")
-                .font(Font::Subheadline)
-                .muted()
-                .show(ui);
+            egui_swift::text!(ui, "No fallback backends configured.", .subheadline, .muted);
         } else {
             for (i, id) in fallback.iter().enumerate() {
                 let name = registry
@@ -154,9 +130,7 @@ pub fn show(
                     .find(|b| &b.backend_id == id)
                     .map(|b| b.display_name.as_str())
                     .unwrap_or(id.as_str());
-                Label::new(&format!("{}. {}", i + 1, name))
-                    .font(Font::Callout)
-                    .show(ui);
+                egui_swift::text!(ui, &format!("{}. {}", i + 1, name), .callout);
             }
         }
     });

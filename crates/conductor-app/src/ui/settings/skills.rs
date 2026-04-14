@@ -1,32 +1,26 @@
 use egui_swift::prelude::*;
 
 pub fn show(ui: &mut egui::Ui) {
-    Label::heading("Skills").show(ui);
-    Spacer::fixed(8.0).show(ui);
+    egui_swift::text!(ui, "Skills", .title);
+    egui_swift::spacer!(ui, 8.0);
+    egui_swift::text!(ui, "Skills are Markdown instruction documents injected into AI system prompts when active.", .callout, .secondary);
+    egui_swift::spacer!(ui, 12.0);
 
-    Label::new(
-        "Skills are Markdown instruction documents injected into AI system prompts when active.",
-    )
-    .font(Font::Callout)
-    .secondary()
-    .show(ui);
-    Spacer::fixed(12.0).show(ui);
-
-    Section::new().header("Bundled").show(ui, |ui| {
+    egui_swift::section!(ui, "Bundled", {
         EmptyState::new("No bundled skills installed yet")
             .subtitle("Skills will appear here when added to the resources/skills/ directory.")
             .show(ui);
     });
 
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
 
-    Section::new().header("User Skills").show(ui, |ui| {
+    egui_swift::section!(ui, "User Skills", {
         EmptyState::new("No user skills")
             .subtitle("Add .md files to ~/.conductor/skills/ to create custom skills.")
             .show(ui);
     });
 
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
 
     if Button::new("Open Skills Directory")
         .style(ButtonStyle::Bordered)

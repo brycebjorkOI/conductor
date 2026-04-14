@@ -52,8 +52,8 @@ impl View for HeaderView {
 
         drop(state);
 
-        HStack::new().show(ui, |ui| {
-            Spacer::fixed(8.0).show(ui);
+        egui_swift::hstack!(ui, {
+            egui_swift::spacer!(ui, 8.0);
 
             if !self.sidebar_open {
                 if Button::new(icons::HAMBURGER)
@@ -64,7 +64,7 @@ impl View for HeaderView {
                 {
                     self.sidebar_open = true;
                 }
-                Spacer::fixed(4.0).show(ui);
+                egui_swift::spacer!(ui, 4.0);
             }
 
             if found_backends.len() >= 2 {
@@ -109,7 +109,7 @@ impl View for HeaderView {
                 );
             }
 
-            Spacer::fixed(8.0).show(ui);
+            egui_swift::spacer!(ui, 8.0);
         });
     }
 }

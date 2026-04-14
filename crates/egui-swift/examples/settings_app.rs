@@ -15,22 +15,8 @@
 
 use egui_swift::prelude::*;
 
-fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([900.0, 600.0])
-            .with_title("egui-swift Settings Example"),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "settings_example",
-        options,
-        Box::new(|cc| {
-            egui_swift::theme::apply_macos_style(&cc.egui_ctx);
-            Ok(Box::new(SettingsApp::default()))
-        }),
-    )
-}
+// One line replaces 15 lines of eframe boilerplate.
+egui_swift::app!(SettingsApp, "egui-swift Settings Example", 900.0, 600.0);
 
 #[derive(Default)]
 struct SettingsApp {

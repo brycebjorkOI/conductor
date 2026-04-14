@@ -80,9 +80,11 @@ pub enum Action {
         tab: Option<SettingsTab>,
     },
     CloseSettings,
+    ToggleNotifications,
     DismissNotification {
         id: String,
     },
+    DismissAllNotifications,
     SaveConfig,
     Quit,
 }

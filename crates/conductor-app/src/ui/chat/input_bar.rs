@@ -38,8 +38,8 @@ impl InputBarView {
                 let content_width = available_width.min(Layout::MAX_CONTENT_WIDTH);
                 let side = ((available_width - content_width) / 2.0).max(20.0);
 
-                HStack::new().show(ui, |ui| {
-                    Spacer::fixed(side).show(ui);
+                egui_swift::hstack!(ui, {
+                    egui_swift::spacer!(ui, side);
                     Card::new()
                         .padding(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
@@ -58,11 +58,11 @@ impl InputBarView {
                             }
                         });
                 });
-                Spacer::fixed(4.0).show(ui);
+                egui_swift::spacer!(ui, 4.0);
             }
         }
 
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
 
         let resp = ChatInput::new(&mut self.input_text)
             .placeholder("Type / for commands")
@@ -92,7 +92,7 @@ impl InputBarView {
             });
         }
 
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
     }
 }
 

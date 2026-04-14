@@ -51,17 +51,17 @@ impl View for SidebarView {
             let _ = self.tx.send(Action::NewSession);
         }
 
-        Spacer::fixed(6.0).show(ui);
+        egui_swift::spacer!(ui, 6.0);
 
-        HStack::new().show(ui, |ui| {
-            Spacer::fixed(8.0).show(ui);
+        egui_swift::hstack!(ui, {
+            egui_swift::spacer!(ui, 8.0);
             ui.scope(|ui| {
                 ui.set_width(ui.available_width() - 16.0);
                 SearchField::new(&mut self.search_query).show(ui);
             });
         });
 
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
 
         if NavRow::new("Chats")
             .icon(icons::SPEECH_BALLOON)
@@ -83,23 +83,31 @@ impl View for SidebarView {
                 tab: Some(SettingsTab::Schedules),
             });
         }
-        if NavRow::new("Notifications")
-            .icon(icons::BELL)
-            .show(ui)
-            .clicked()
-        {}
+        {
+            let unread = {
+                let state = self.shared.read();
+                state.notifications.iter().filter(|n| !n.dismissed).count() as u32
+            };
+            let mut row = NavRow::new("Notifications").icon(icons::BELL);
+            if unread > 0 {
+                row = row.badge(unread);
+            }
+            if row.show(ui).clicked() {
+                let _ = self.tx.send(Action::ToggleNotifications);
+            }
+        }
         if NavRow::new("Trash")
             .icon(icons::WASTEBASKET)
             .show(ui)
             .clicked()
         {}
 
-        Spacer::fixed(8.0).show(ui);
+        egui_swift::spacer!(ui, 8.0);
         Divider::new().inset(8.0).show(ui);
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
 
         SectionHeader::new("Recent").show(ui);
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
 
         ScrollView::vertical().show(ui, |ui| {
             let query = self.search_query.to_lowercase();
@@ -121,7 +129,7 @@ impl View for SidebarView {
         });
 
         Spacer::bottom(ui, |ui| {
-            Spacer::fixed(8.0).show(ui);
+            egui_swift::spacer!(ui, 8.0);
             let resp = UserProfile::new("User")
                 .version(concat!("v", env!("CARGO_PKG_VERSION")))
                 .show(ui);
@@ -131,7 +139,7 @@ impl View for SidebarView {
                 });
             }
             Divider::new().inset(8.0).show(ui);
-            Spacer::fixed(4.0).show(ui);
+            egui_swift::spacer!(ui, 4.0);
         });
     }
 }

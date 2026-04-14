@@ -7,8 +7,8 @@ use egui_swift::prelude::*;
 use crate::bridge::SharedState;
 
 pub fn show(ui: &mut egui::Ui, shared: &SharedState, tx: &mpsc::UnboundedSender<Action>) {
-    Label::heading("Sessions").show(ui);
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::text!(ui, "Sessions", .title);
+    egui_swift::spacer!(ui, 12.0);
 
     let state = shared.read();
     let active_sid = state.active_session_id.clone();
@@ -42,11 +42,9 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState, tx: &mpsc::UnboundedSender<
             } else {
                 name.clone()
             };
-            Label::new(&label).font(Font::Subheadline).show(ui);
-            Label::new(&format!("{msg_count}"))
-                .font(Font::Subheadline)
-                .show(ui);
-            Label::new(created).font(Font::Subheadline).show(ui);
+            egui_swift::text!(ui, &label, .subheadline);
+            egui_swift::text!(ui, &format!("{msg_count}"), .subheadline);
+            egui_swift::text!(ui, created, .subheadline);
 
             if !is_active {
                 if Button::new("Switch")
@@ -60,7 +58,7 @@ pub fn show(ui: &mut egui::Ui, shared: &SharedState, tx: &mpsc::UnboundedSender<
                     });
                 }
             } else {
-                Label::new("-").font(Font::Subheadline).muted().show(ui);
+                egui_swift::text!(ui, "-", .subheadline, .muted);
             }
             ui.end_row();
         }

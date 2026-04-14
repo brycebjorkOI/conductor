@@ -10,13 +10,13 @@ pub fn show(
     shared: &SharedState,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    Label::heading("General").show(ui);
-    Spacer::fixed(16.0).show(ui);
+    egui_swift::text!(ui, "General", .title);
+    egui_swift::spacer!(ui, 16.0);
 
     let mut config = shared.read().config.clone();
     let mut changed = false;
 
-    Section::new().header("Connection Mode").show(ui, |ui| {
+    egui_swift::section!(ui, "Connection Mode", {
         let modes: Vec<(String, &str)> = vec![
             ("standalone".into(), "Standalone"),
             ("local_server".into(), "Local Server"),
@@ -26,9 +26,9 @@ pub fn show(
         changed = true;
     });
 
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
 
-    Section::new().header("Behavior").show(ui, |ui| {
+    egui_swift::section!(ui, "Behavior", {
         if Toggle::new(&mut config.general.auto_hide_panel)
             .label("Auto-hide panel on focus loss")
             .show(ui)
@@ -36,7 +36,7 @@ pub fn show(
         {
             changed = true;
         }
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
         if Toggle::new(&mut config.general.launch_at_login)
             .label("Launch at login")
             .show(ui)
@@ -44,7 +44,7 @@ pub fn show(
         {
             changed = true;
         }
-        Spacer::fixed(4.0).show(ui);
+        egui_swift::spacer!(ui, 4.0);
         if Toggle::new(&mut config.general.check_updates)
             .label("Check for updates")
             .show(ui)
@@ -54,9 +54,9 @@ pub fn show(
         }
     });
 
-    Spacer::fixed(12.0).show(ui);
+    egui_swift::spacer!(ui, 12.0);
 
-    Section::new().header("Logging").show(ui, |ui| {
+    egui_swift::section!(ui, "Logging", {
         let levels: Vec<(String, &str)> = vec![
             ("trace".into(), "Trace"),
             ("debug".into(), "Debug"),

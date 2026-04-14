@@ -60,29 +60,38 @@ impl<'a> ChatInput<'a> {
         let mut submitted = false;
         let mut stopped = false;
 
-        // Center the input.
+        // Center the input, responsive to available width.
+        // Always keep a minimum margin on both sides.
         let available = ui.available_width();
-        let width = available.min(self.max_width);
-        let side = ((available - width) / 2.0).max(0.0);
+        let min_margin = 16.0;
+        let width = (available - min_margin * 2.0).min(self.max_width).max(100.0);
+        let side = (available - width) / 2.0;
 
         let mut text_response_out: Option<egui::Response> = None;
 
-        ui.horizontal(|ui| {
-            ui.add_space(side);
+        // Allocate exact width for the input, then center it.
+        let frame_margins = 26.0; // left(16) + right(10)
+        let outer_width = width + frame_margins;
 
-            let frame = egui::Frame::NONE
-                .fill(p.input_bg)
-                .corner_radius(egui::CornerRadius::same(rounding))
-                .stroke(egui::Stroke::new(1.0, p.border))
-                .inner_margin(egui::Margin {
-                    left: 16,
-                    right: 10,
-                    top: 12,
-                    bottom: 12,
-                });
+        ui.allocate_ui_with_layout(
+            egui::vec2(available, 80.0),
+            egui::Layout::left_to_right(egui::Align::TOP),
+            |ui| {
+                ui.add_space(side);
+                ui.allocate_ui(egui::vec2(outer_width, 80.0), |ui| {
+                    let frame = egui::Frame::NONE
+                        .fill(p.input_bg)
+                        .corner_radius(egui::CornerRadius::same(rounding))
+                        .stroke(egui::Stroke::new(1.0, p.border))
+                        .inner_margin(egui::Margin {
+                            left: 16,
+                            right: 10,
+                            top: 12,
+                            bottom: 12,
+                        });
 
-            frame.show(ui, |ui| {
-                ui.set_width(width - 4.0);
+                    frame.show(ui, |ui| {
+                        ui.set_width((width - 4.0).max(80.0));
 
                 // Top row: text input.
                 let text_resp = ui.add_sized(
@@ -180,9 +189,9 @@ impl<'a> ChatInput<'a> {
 
                 text_response_out = Some(text_resp);
             });
-
-            ui.add_space(side);
-        });
+                });
+            },
+        );
 
         // Enter key detection.
         let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
