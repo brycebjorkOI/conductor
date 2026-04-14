@@ -151,6 +151,15 @@ pub fn select_backend<'a>(
         }
     }
 
+    // Last resort: try any available backend.
+    for bs in registry {
+        if is_available(bs) {
+            if let Some(ref path) = bs.binary_path {
+                return Some((bs, path));
+            }
+        }
+    }
+
     None
 }
 

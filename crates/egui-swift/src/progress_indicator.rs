@@ -6,6 +6,7 @@
 //! ```
 
 use crate::colors;
+use crate::ext::ColorExt;
 
 pub enum ProgressStyle {
     Spinner,
@@ -57,14 +58,9 @@ impl ProgressIndicator {
                     for i in 0..segments {
                         let angle = (i as f64 / segments as f64) * std::f64::consts::TAU
                             + time * 4.0;
-                        let alpha =
-                            ((segments - i) as f32 / segments as f32 * 200.0) as u8;
-                        let color = egui::Color32::from_rgba_premultiplied(
-                            p.text_secondary.r(),
-                            p.text_secondary.g(),
-                            p.text_secondary.b(),
-                            alpha,
-                        );
+                        let fade =
+                            (segments - i) as f32 / segments as f32 * 0.78;
+                        let color = p.text_secondary.opacity(fade);
 
                         let pos = egui::pos2(
                             center.x + (angle.cos() as f32) * radius,

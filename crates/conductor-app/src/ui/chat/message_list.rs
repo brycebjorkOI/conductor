@@ -7,8 +7,7 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
         .as_ref()
         .map_or(false, |s| s.is_active);
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false; 2])
+    ScrollView::vertical()
         .stick_to_bottom(is_streaming || !session.messages.is_empty())
         .show(ui, |ui| {
             ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
@@ -114,11 +113,34 @@ fn render_user_message(ui: &mut egui::Ui, msg: &Message) {
 }
 
 fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
+    let _p = ui.palette();
+
+    // -- Thinking section (shown above tool cards and response text) --
+    if let Some(ref thinking) = msg.thinking_content {
+        if !thinking.is_empty() {
+            render_thinking(ui, &msg.id, thinking, msg.status == MessageStatus::Streaming);
+            ui.add_space(8.0);
+        }
+    } else if msg.status == MessageStatus::Streaming && msg.content.is_empty() && msg.tool_cards.is_empty() {
+        // Streaming but no content yet — show a subtle "thinking" indicator.
+        ui.horizontal(|ui| {
+            ui.spinner();
+            Label::new("Thinking...")
+                .font(Font::Subheadline)
+                .italic(true)
+                .muted()
+                .show(ui);
+        });
+        ui.add_space(4.0);
+    }
+
+    // -- Tool cards --
     for card in &msg.tool_cards {
         render_tool_card(ui, card);
         ui.add_space(6.0);
     }
 
+    // -- Response text (Markdown) --
     if !msg.content.is_empty() {
         let mut cache = egui_commonmark::CommonMarkCache::default();
         egui_commonmark::CommonMarkViewer::new().show(ui, &mut cache, &msg.content);
@@ -192,12 +214,15 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
     Card::new()
         .padding(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
+            // Use timestamp to make each tool card's collapsing header unique.
+            let unique_id = format!("tool_{}_{}", card.tool_name, card.timestamp.timestamp_millis());
             egui::CollapsingHeader::new(
                 egui::RichText::new(format!("{status_icon}  {}", card.tool_name))
                     .size(Font::Subheadline.size())
                     .monospace()
                     .color(status_color),
             )
+            .id_salt(&unique_id)
             .default_open(false)
             .show(ui, |ui| {
                 for (key, value) in &card.arguments {
@@ -229,4 +254,85 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
                 }
             });
         });
+}
+
+/// Render the thinking/reasoning section like Claude's "Thinking about..." UI.
+fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming: bool) {
+    let p = ui.palette();
+
+    // Extract a summary from the first line/sentence for the collapsible header.
+    let summary = {
+        let first_line = thinking.lines().next().unwrap_or("Thinking...");
+        let trimmed = first_line.trim();
+        if trimmed.len() > 60 {
+            format!("{}...", &trimmed[..57])
+        } else if trimmed.is_empty() {
+            "Thinking...".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    };
+
+    // Header: "Thinking about ..." with expand chevron.
+    let header_text = if is_streaming {
+        format!("\u{1f4ad} {summary}")  // thought balloon emoji while active
+    } else {
+        format!("\u{1f4ad} {summary}")
+    };
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new(&header_text)
+            .size(Font::Subheadline.size())
+            .italics()
+            .color(p.text_secondary),
+    )
+    .id_salt(format!("thinking_{msg_id}"))
+    .default_open(false)
+    .show(ui, |ui| {
+        // Render thinking steps with indicators.
+        let lines: Vec<&str> = thinking.lines().filter(|l| !l.trim().is_empty()).collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            let is_last = i == lines.len() - 1;
+            ui.horizontal(|ui| {
+                // Step indicator.
+                if is_last && !is_streaming {
+                    // Final step: checkmark
+                    ui.label(
+                        egui::RichText::new(icons::CHECKMARK)
+                            .size(Font::Caption.size())
+                            .color(p.status_green),
+                    );
+                } else if is_last && is_streaming {
+                    // Currently processing: spinner
+                    ui.spinner();
+                } else {
+                    // Completed step: circle
+                    ui.label(
+                        egui::RichText::new(icons::CIRCLE_FILLED)
+                            .size(8.0)
+                            .color(p.text_muted),
+                    );
+                }
+
+                ui.label(
+                    egui::RichText::new(*line)
+                        .size(Font::Subheadline.size())
+                        .color(p.text_secondary),
+                );
+            });
+
+            // Connector line between steps (except after the last one).
+            if !is_last {
+                ui.horizontal(|ui| {
+                    ui.add_space(7.0); // align with the icon center
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(1.0, 12.0),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter().rect_filled(rect, 0.0, p.border_subtle);
+                });
+            }
+        }
+    });
 }

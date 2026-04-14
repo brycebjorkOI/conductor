@@ -118,12 +118,7 @@ impl<'a> Button<'a> {
                     ui.painter().rect_filled(
                         hover_rect,
                         rounding,
-                        egui::Color32::from_rgba_premultiplied(
-                            p.accent.r(),
-                            p.accent.g(),
-                            p.accent.b(),
-                            15,
-                        ),
+                        crate::ext::ColorExt::opacity(p.accent, 0.06),
                     );
                 }
                 _ => {}

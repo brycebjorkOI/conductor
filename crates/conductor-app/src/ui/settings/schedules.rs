@@ -48,9 +48,9 @@ pub fn show(
     drop(state);
 
     // Header row.
-    ui.horizontal(|ui| {
+    HStack::new().show(ui, |ui| {
         Label::heading("Scheduled Tasks").show(ui);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        Spacer::trailing(ui, |ui| {
             if Button::new("+ Add Job")
                 .style(ButtonStyle::BorderedProminent)
                 .small(true)

@@ -28,9 +28,9 @@ pub fn show(
     let fallback = state.fallback_order.clone();
     drop(state);
 
-    ui.horizontal(|ui| {
+    HStack::new().show(ui, |ui| {
         Label::heading("Backends").show(ui);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        Spacer::trailing(ui, |ui| {
             if Button::new("Rescan")
                 .style(ButtonStyle::Bordered)
                 .small(true)

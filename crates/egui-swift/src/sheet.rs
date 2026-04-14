@@ -5,6 +5,7 @@
 //! ```
 
 use crate::colors;
+use crate::ext::ColorExt;
 use crate::helpers;
 
 const ANIMATION_SECS: f32 = 0.2;
@@ -56,7 +57,7 @@ impl<'a> Sheet<'a> {
                 ui.painter().rect_filled(
                     rect,
                     egui::CornerRadius::ZERO,
-                    egui::Color32::from_rgba_premultiplied(0, 0, 0, backdrop_alpha),
+                    egui::Color32::BLACK.opacity(backdrop_alpha as f32 / 255.0),
                 );
             });
 

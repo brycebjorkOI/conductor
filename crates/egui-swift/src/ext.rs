@@ -1,14 +1,12 @@
-//! Extension trait on `egui::Ui` for ergonomic access to palette and layout.
+//! Extension traits for `egui::Ui`, `egui::Context`, and `egui::Color32`.
 //!
 //! ```ignore
 //! use egui_swift::prelude::*;
 //!
 //! fn my_view(ui: &mut egui::Ui) {
-//!     let p = ui.palette();                  // no more `colors::palette(ui)`
-//!
-//!     ui.centered_content(640.0, |ui| {      // no more 3-line centering math
-//!         Label::heading("Title").show(ui);
-//!     });
+//!     let p = ui.palette();
+//!     let subtle = p.accent.opacity(0.1);   // semi-transparent color
+//!     ui.centered_content(640.0, |ui| { ... });
 //! }
 //! ```
 
@@ -54,5 +52,26 @@ pub trait CtxExt {
 impl CtxExt for egui::Context {
     fn palette(&self) -> Palette {
         colors::palette_from_ctx(self)
+    }
+}
+
+/// SwiftUI-style `.opacity()` on colors.
+///
+/// ```ignore
+/// let subtle_bg = p.accent.opacity(0.1);
+/// let dimmed = p.text_primary.opacity(0.5);
+/// ```
+pub trait ColorExt {
+    /// Create a semi-transparent version of this color.
+    ///
+    /// `opacity` is 0.0 (fully transparent) to 1.0 (fully opaque).
+    /// Works correctly with opaque colors from the palette.
+    fn opacity(self, opacity: f32) -> egui::Color32;
+}
+
+impl ColorExt for egui::Color32 {
+    fn opacity(self, opacity: f32) -> egui::Color32 {
+        let a = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+        egui::Color32::from_rgba_unmultiplied(self.r(), self.g(), self.b(), a)
     }
 }

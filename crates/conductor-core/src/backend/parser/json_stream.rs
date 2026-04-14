@@ -11,9 +11,10 @@ use crate::state::UsageMetrics;
 /// - `{"type":"rate_limit_event",...}` — rate limit info (ignored)
 /// - `{"type":"result","subtype":"success","result":"...","usage":{...},"total_cost_usd":...}` — final
 pub struct JsonStreamParser {
-    /// Track whether we've received text from an "assistant" event,
-    /// so we don't duplicate it when the "result" event arrives.
-    got_assistant_text: bool,
+    /// Track whether we've received any content from an "assistant" event
+    /// (text or tool use), so we don't duplicate text from "result" and
+    /// don't show spurious errors for tool-use-interrupted responses.
+    got_assistant_content: bool,
     /// Track whether we've already emitted a Done event from a "result" line.
     got_done: bool,
 }
@@ -21,7 +22,7 @@ pub struct JsonStreamParser {
 impl JsonStreamParser {
     pub fn new() -> Self {
         Self {
-            got_assistant_text: false,
+            got_assistant_content: false,
             got_done: false,
         }
     }
@@ -61,12 +62,13 @@ impl StreamParser for JsonStreamParser {
                                 "text" => {
                                     if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
                                         if !text.is_empty() {
-                                            self.got_assistant_text = true;
+                                            self.got_assistant_content = true;
                                             events.push(StreamEvent::TextChunk(text.to_string()));
                                         }
                                     }
                                 }
                                 "tool_use" => {
+                                    self.got_assistant_content = true;
                                     let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
                                     let args: HashMap<String, serde_json::Value> = block
                                         .get("input")
@@ -101,7 +103,7 @@ impl StreamParser for JsonStreamParser {
 
                 // Extract final text from "result" field — but only if we
                 // didn't already get it from the "assistant" event.
-                if !self.got_assistant_text {
+                if !self.got_assistant_content {
                     if let Some(text) = obj.get("result").and_then(|v| v.as_str()) {
                         if !text.is_empty() {
                             events.push(StreamEvent::TextChunk(text.to_string()));
@@ -119,16 +121,26 @@ impl StreamParser for JsonStreamParser {
                     events.push(StreamEvent::UsageData(metrics));
                 }
 
-                // Check for error — but only if result text is actually empty
-                // (a result with text + is_error=false from tool-use-interrupted
-                // scenarios should not be treated as an error).
+                // Only treat as an error if the result event explicitly signals
+                // failure AND there's no useful content. The Claude CLI sets
+                // is_error when --max-turns prevented tool completion, but the
+                // response text is still valid. We suppress the error if:
+                // - We already got assistant text or tool use events
+                // - The subtype is "success"
+                // - There's a non-empty result string (meaning partial response)
                 let is_error = obj.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-                if is_error {
-                    // Use the "result" field if it's a string, otherwise try "error"
-                    let msg = obj.get("result")
+                let subtype = obj.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+                let has_result_text = obj.get("result")
+                    .and_then(|v| v.as_str())
+                    .map_or(false, |s| !s.is_empty());
+                let is_real_error = is_error
+                    && subtype != "success"
+                    && !self.got_assistant_content
+                    && !has_result_text;
+
+                if is_real_error {
+                    let msg = obj.get("error")
                         .and_then(|v| v.as_str())
-                        .filter(|s| !s.is_empty())
-                        .or_else(|| obj.get("error").and_then(|v| v.as_str()))
                         .unwrap_or("Backend reported an error")
                         .to_string();
                     events.push(StreamEvent::Error(msg));

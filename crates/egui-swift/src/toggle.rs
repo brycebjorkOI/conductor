@@ -5,6 +5,7 @@
 //! ```
 
 use crate::colors;
+use crate::ext::ColorExt;
 use crate::helpers;
 
 const TRACK_WIDTH: f32 = 51.0;
@@ -81,7 +82,7 @@ impl<'a> Toggle<'a> {
             painter.circle_filled(
                 thumb_center + egui::vec2(0.0, 1.0),
                 THUMB_DIAMETER / 2.0 + 0.5,
-                egui::Color32::from_rgba_premultiplied(0, 0, 0, 25),
+                egui::Color32::BLACK.opacity(0.1),
             );
             // White thumb.
             painter.circle_filled(thumb_center, THUMB_DIAMETER / 2.0, egui::Color32::WHITE);

@@ -7,8 +7,8 @@
 //! This gives you access to all commonly used types — including SwiftUI
 //! compatibility aliases — without individual imports.
 
-// Extension traits (must be in scope to use .palette(), .centered_content())
-pub use crate::ext::{CtxExt, UiExt};
+// Extension traits (must be in scope to use .palette(), .centered_content(), .opacity())
+pub use crate::ext::{ColorExt, CtxExt, UiExt};
 
 // Typography
 pub use crate::typography::Font;
@@ -48,6 +48,12 @@ pub use crate::button_row::ButtonRow;
 pub use crate::data_table::DataTable;
 pub use crate::disclosure_group::DisclosureGroup;
 pub use crate::empty_state::{EmptyState, EmptyStateResponse};
+
+// Layout primitives
+pub use crate::labeled_content::LabeledContent;
+pub use crate::scroll_view::ScrollView;
+pub use crate::spacer::Spacer;
+pub use crate::stacks::{HStack, StackExt, VStack};
 
 // Navigation
 pub use crate::navigation_split_view::NavigationSplitView;

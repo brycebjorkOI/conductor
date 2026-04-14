@@ -60,6 +60,12 @@ pub mod data_table;
 pub mod disclosure_group;
 pub mod empty_state;
 
+// Layout primitives
+pub mod labeled_content;
+pub mod scroll_view;
+pub mod spacer;
+pub mod stacks;
+
 // Navigation
 pub mod navigation_split_view;
 
