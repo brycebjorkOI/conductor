@@ -2,6 +2,17 @@ use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
 use conductor_core::state::*;
+use egui_swift::button::{Button, ButtonStyle};
+use egui_swift::button_row::ButtonRow;
+use egui_swift::card::Card;
+use egui_swift::colors;
+use egui_swift::disclosure_group::DisclosureGroup;
+use egui_swift::divider::Divider;
+use egui_swift::empty_state::EmptyState;
+use egui_swift::form_section::FormSection;
+use egui_swift::radio_group::RadioGroup;
+use egui_swift::status_dot::StatusDot;
+use egui_swift::text_field::TextField;
 
 use crate::bridge::SharedState;
 
@@ -9,7 +20,6 @@ use crate::bridge::SharedState;
 pub struct SchedulesTabState {
     pub show_add_form: bool,
     pub form: JobForm,
-    /// Which job's history is expanded (job_id or empty).
     pub expanded_history: Option<String>,
 }
 
@@ -26,12 +36,12 @@ impl Default for SchedulesTabState {
 #[derive(Default)]
 pub struct JobForm {
     pub name: String,
-    pub schedule_type: u8, // 0=once, 1=interval, 2=cron
+    pub schedule_type: u8,
     pub interval_minutes: u32,
     pub cron_expression: String,
     pub prompt: String,
-    pub execution_mode: u8, // 0=isolated, 1=main_session
-    pub delivery_mode: u8,  // 0=silent, 1=webhook
+    pub execution_mode: u8,
+    pub delivery_mode: u8,
     pub webhook_url: String,
 }
 
@@ -41,10 +51,7 @@ pub fn show(
     tx: &mpsc::UnboundedSender<Action>,
     tab_state: &mut SchedulesTabState,
 ) {
-    let p = egui_swift::colors::palette(ui);
-
-    ui.heading("Scheduled Tasks");
-    ui.add_space(8.0);
+    let p = colors::palette(ui);
 
     let state = shared.read();
     let jobs = state.scheduler.jobs.clone();
@@ -53,48 +60,54 @@ pub fn show(
     // Header row.
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(format!("{} job{}", jobs.len(), if jobs.len() == 1 { "" } else { "s" }))
-                .color(p.text_secondary),
+            egui::RichText::new("Scheduled Tasks")
+                .size(22.0)
+                .strong()
+                .color(p.text_primary),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("+ Add Job").clicked() {
+            if Button::new("+ Add Job")
+                .style(ButtonStyle::BorderedProminent)
+                .small(true)
+                .show(ui)
+                .clicked()
+            {
                 tab_state.show_add_form = !tab_state.show_add_form;
             }
         });
     });
 
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(format!(
+            "{} job{}",
+            jobs.len(),
+            if jobs.len() == 1 { "" } else { "s" }
+        ))
+        .size(12.0)
+        .color(p.text_secondary),
+    );
     ui.add_space(8.0);
 
     // -- Add Job form --
     if tab_state.show_add_form {
         show_add_form(ui, tx, tab_state, &p);
-        ui.add_space(12.0);
-        ui.separator();
+        ui.add_space(8.0);
+        Divider::new().show(ui);
         ui.add_space(8.0);
     }
 
     // -- Job list --
     if jobs.is_empty() && !tab_state.show_add_form {
-        ui.add_space(20.0);
-        ui.vertical_centered(|ui| {
-            ui.label(
-                egui::RichText::new("No scheduled tasks yet")
-                    .size(15.0)
-                    .color(p.text_muted),
-            );
-            ui.add_space(4.0);
-            ui.label(
-                egui::RichText::new("Create a job to run AI prompts on a schedule.")
-                    .size(12.0)
-                    .color(p.text_muted),
-            );
-        });
+        EmptyState::new("No scheduled tasks yet")
+            .icon("\u{1f4c5}")
+            .subtitle("Create a job to run AI prompts on a schedule.")
+            .show(ui);
         return;
     }
 
     for job in &jobs {
         show_job_card(ui, job, tx, tab_state, &p);
-        ui.add_space(4.0);
     }
 }
 
@@ -106,137 +119,156 @@ fn show_add_form(
 ) {
     let form = &mut tab_state.form;
 
-    egui::Frame::NONE
-        .fill(p.surface_raised)
-        .corner_radius(egui::CornerRadius::same(8))
-        .stroke(egui::Stroke::new(0.5, p.border))
-        .inner_margin(egui::Margin::symmetric(16, 12))
-        .show(ui, |ui| {
-            ui.label(egui::RichText::new("New Scheduled Job").strong().size(14.0));
-            ui.add_space(8.0);
+    Card::new().show(ui, |ui| {
+        ui.label(
+            egui::RichText::new("New Scheduled Job")
+                .strong()
+                .size(15.0)
+                .color(p.text_primary),
+        );
+        ui.add_space(8.0);
 
-            // Name.
-            ui.horizontal(|ui| {
-                ui.label("Name:");
-                ui.text_edit_singleline(&mut form.name);
-            });
+        // Name.
+        TextField::new(&mut form.name)
+            .label("Name")
+            .placeholder("Job name")
+            .show(ui);
+        ui.add_space(8.0);
 
-            // Schedule type.
-            ui.horizontal(|ui| {
-                ui.label("Schedule:");
-                ui.radio_value(&mut form.schedule_type, 1, "Interval");
-                ui.radio_value(&mut form.schedule_type, 2, "Cron");
-                ui.radio_value(&mut form.schedule_type, 0, "One-time");
-            });
+        // Schedule type.
+        FormSection::new().header("Schedule").show(ui, |ui| {
+            let schedule_types: Vec<(u8, &str)> =
+                vec![(1, "Interval"), (2, "Cron"), (0, "One-time")];
+            RadioGroup::new(&mut form.schedule_type, &schedule_types).show(ui);
+        });
 
-            match form.schedule_type {
-                1 => {
-                    ui.horizontal(|ui| {
-                        ui.label("Every");
-                        ui.add(egui::DragValue::new(&mut form.interval_minutes).range(1..=10080));
-                        ui.label("minutes");
-                    });
-                }
-                2 => {
-                    ui.horizontal(|ui| {
-                        ui.label("Cron:");
-                        ui.text_edit_singleline(&mut form.cron_expression);
-                    });
-                    ui.label(
-                        egui::RichText::new("e.g. \"0 9 * * 1-5\" = 9 AM weekdays")
-                            .size(11.0)
-                            .color(p.text_muted),
-                    );
-                }
-                _ => {
-                    ui.label(
-                        egui::RichText::new("One-time jobs run immediately when created.")
-                            .size(11.0)
-                            .color(p.text_muted),
-                    );
-                }
-            }
+        ui.add_space(4.0);
 
-            // Prompt.
-            ui.label("Prompt:");
-            ui.add(
-                egui::TextEdit::multiline(&mut form.prompt)
-                    .desired_rows(3)
-                    .hint_text("What should the AI do?"),
-            );
-
-            // Execution mode.
-            ui.horizontal(|ui| {
-                ui.label("Mode:");
-                ui.radio_value(&mut form.execution_mode, 0, "Isolated");
-                ui.radio_value(&mut form.execution_mode, 1, "Main session");
-            });
-
-            // Delivery.
-            ui.horizontal(|ui| {
-                ui.label("Deliver:");
-                ui.radio_value(&mut form.delivery_mode, 0, "Silent (log only)");
-                ui.radio_value(&mut form.delivery_mode, 1, "Webhook");
-            });
-            if form.delivery_mode == 1 {
+        match form.schedule_type {
+            1 => {
                 ui.horizontal(|ui| {
-                    ui.label("URL:");
-                    ui.text_edit_singleline(&mut form.webhook_url);
+                    ui.label(
+                        egui::RichText::new("Every").size(13.0).color(p.text_primary),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut form.interval_minutes).range(1..=10080),
+                    );
+                    ui.label(
+                        egui::RichText::new("minutes")
+                            .size(13.0)
+                            .color(p.text_primary),
+                    );
                 });
             }
+            2 => {
+                TextField::new(&mut form.cron_expression)
+                    .label("Cron expression")
+                    .placeholder("0 9 * * 1-5")
+                    .show(ui);
+                ui.label(
+                    egui::RichText::new("e.g. \"0 9 * * 1-5\" = 9 AM weekdays")
+                        .size(11.0)
+                        .color(p.text_muted),
+                );
+            }
+            _ => {
+                ui.label(
+                    egui::RichText::new("One-time jobs run immediately when created.")
+                        .size(11.0)
+                        .color(p.text_muted),
+                );
+            }
+        }
 
-            ui.add_space(8.0);
+        ui.add_space(8.0);
 
-            // Buttons.
-            ui.horizontal(|ui| {
-                let can_create = !form.name.trim().is_empty() && !form.prompt.trim().is_empty();
-                if ui
-                    .add_enabled(can_create, egui::Button::new("Create Job"))
-                    .clicked()
-                {
-                    let schedule = match form.schedule_type {
-                        1 => ScheduleDefinition::Interval {
-                            seconds: form.interval_minutes as u64 * 60,
-                        },
-                        2 => ScheduleDefinition::Cron {
-                            expression: form.cron_expression.clone(),
-                            timezone: "UTC".into(),
-                        },
-                        _ => ScheduleDefinition::OneTime {
-                            datetime: chrono::Utc::now() + chrono::Duration::seconds(5),
-                        },
-                    };
-                    let delivery = match form.delivery_mode {
-                        1 => DeliveryConfig::Webhook {
-                            url: form.webhook_url.clone(),
-                        },
-                        _ => DeliveryConfig::Silent,
-                    };
-                    let exec_mode = if form.execution_mode == 1 {
-                        ExecutionMode::MainSession
-                    } else {
-                        ExecutionMode::Isolated
-                    };
+        // Prompt.
+        TextField::new(&mut form.prompt)
+            .label("Prompt")
+            .placeholder("What should the AI do?")
+            .multiline(3)
+            .show(ui);
+        ui.add_space(8.0);
 
-                    let job = conductor_core::scheduler::create_job(
-                        form.name.clone(),
-                        schedule,
-                        form.prompt.clone(),
-                        exec_mode,
-                        delivery,
-                    );
-                    let _ = tx.send(Action::CreateJob { definition: job });
-
-                    // Reset form.
-                    *form = JobForm::default();
-                    tab_state.show_add_form = false;
-                }
-
-                if ui.button("Cancel").clicked() {
-                    tab_state.show_add_form = false;
-                }
-            });
+        // Execution mode.
+        FormSection::new().header("Execution Mode").show(ui, |ui| {
+            let exec_modes: Vec<(u8, &str)> = vec![(0, "Isolated"), (1, "Main session")];
+            RadioGroup::new(&mut form.execution_mode, &exec_modes).show(ui);
         });
+
+        ui.add_space(4.0);
+
+        // Delivery.
+        FormSection::new().header("Delivery").show(ui, |ui| {
+            let delivery_modes: Vec<(u8, &str)> =
+                vec![(0, "Silent (log only)"), (1, "Webhook")];
+            RadioGroup::new(&mut form.delivery_mode, &delivery_modes).show(ui);
+        });
+
+        if form.delivery_mode == 1 {
+            ui.add_space(4.0);
+            TextField::new(&mut form.webhook_url)
+                .label("Webhook URL")
+                .placeholder("https://...")
+                .show(ui);
+        }
+
+        ui.add_space(12.0);
+
+        // Buttons.
+        let can_create = !form.name.trim().is_empty() && !form.prompt.trim().is_empty();
+        ButtonRow::show(ui, |ui| {
+            if Button::new("Cancel")
+                .style(ButtonStyle::Bordered)
+                .show(ui)
+                .clicked()
+            {
+                tab_state.show_add_form = false;
+            }
+            if Button::new("Create Job")
+                .style(ButtonStyle::BorderedProminent)
+                .enabled(can_create)
+                .show(ui)
+                .clicked()
+            {
+                let schedule = match form.schedule_type {
+                    1 => ScheduleDefinition::Interval {
+                        seconds: form.interval_minutes as u64 * 60,
+                    },
+                    2 => ScheduleDefinition::Cron {
+                        expression: form.cron_expression.clone(),
+                        timezone: "UTC".into(),
+                    },
+                    _ => ScheduleDefinition::OneTime {
+                        datetime: chrono::Utc::now() + chrono::Duration::seconds(5),
+                    },
+                };
+                let delivery = match form.delivery_mode {
+                    1 => DeliveryConfig::Webhook {
+                        url: form.webhook_url.clone(),
+                    },
+                    _ => DeliveryConfig::Silent,
+                };
+                let exec_mode = if form.execution_mode == 1 {
+                    ExecutionMode::MainSession
+                } else {
+                    ExecutionMode::Isolated
+                };
+
+                let job = conductor_core::scheduler::create_job(
+                    form.name.clone(),
+                    schedule,
+                    form.prompt.clone(),
+                    exec_mode,
+                    delivery,
+                );
+                let _ = tx.send(Action::CreateJob { definition: job });
+
+                *form = JobForm::default();
+                tab_state.show_add_form = false;
+            }
+        });
+    });
 }
 
 fn show_job_card(
@@ -246,117 +278,109 @@ fn show_job_card(
     tab_state: &mut SchedulesTabState,
     p: &egui_swift::colors::Palette,
 ) {
-    let status_color = if job.enabled { p.status_green } else { p.text_muted };
+    let status_color = if job.enabled {
+        p.status_green
+    } else {
+        p.text_muted
+    };
 
-    egui::Frame::NONE
-        .fill(p.surface_raised)
-        .corner_radius(egui::CornerRadius::same(8))
-        .stroke(egui::Stroke::new(0.5, p.border_subtle))
-        .inner_margin(egui::Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            // Top row: name, schedule, status.
-            ui.horizontal(|ui| {
-                // Status dot.
-                let (dot_rect, _) =
-                    ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
-                ui.painter()
-                    .circle_filled(dot_rect.center(), 4.0, status_color);
-
-                ui.label(egui::RichText::new(&job.name).strong().size(13.0));
-
-                ui.label(
-                    egui::RichText::new(format_schedule(&job.schedule))
-                        .size(12.0)
-                        .color(p.text_secondary),
-                );
-
-                if let Some(next) = job.next_run {
-                    ui.label(
-                        egui::RichText::new(format!("next: {}", next.format("%H:%M")))
-                            .size(11.0)
-                            .color(p.text_muted),
-                    );
-                }
-            });
-
-            // Prompt preview.
-            let preview = if job.payload.prompt.len() > 80 {
-                format!("{}...", &job.payload.prompt[..77])
-            } else {
-                job.payload.prompt.clone()
-            };
+    Card::new().show(ui, |ui| {
+        // Top row: status + name + schedule.
+        ui.horizontal(|ui| {
+            StatusDot::new(status_color).show(ui);
+            ui.label(egui::RichText::new(&job.name).strong().size(13.0));
             ui.label(
-                egui::RichText::new(preview)
+                egui::RichText::new(format_schedule(&job.schedule))
                     .size(12.0)
                     .color(p.text_secondary),
             );
+            if let Some(next) = job.next_run {
+                ui.label(
+                    egui::RichText::new(format!("next: {}", next.format("%H:%M")))
+                        .size(11.0)
+                        .color(p.text_muted),
+                );
+            }
+        });
 
-            // Action buttons.
-            ui.horizontal(|ui| {
-                if ui.small_button("Run Now").clicked() {
-                    let _ = tx.send(Action::RunJobNow {
-                        job_id: job.job_id.clone(),
-                    });
-                }
+        // Prompt preview.
+        let preview = if job.payload.prompt.len() > 80 {
+            format!("{}...", &job.payload.prompt[..77])
+        } else {
+            job.payload.prompt.clone()
+        };
+        ui.label(
+            egui::RichText::new(preview)
+                .size(12.0)
+                .color(p.text_secondary),
+        );
 
-                let toggle_label = if job.enabled { "Disable" } else { "Enable" };
-                if ui.small_button(toggle_label).clicked() {
-                    let _ = tx.send(Action::ToggleJob {
-                        job_id: job.job_id.clone(),
-                        enabled: !job.enabled,
-                    });
-                }
+        ui.add_space(4.0);
 
-                if ui.small_button("Delete").clicked() {
-                    let _ = tx.send(Action::DeleteJob {
-                        job_id: job.job_id.clone(),
-                    });
-                }
-
-                let history_label = if tab_state.expanded_history.as_deref() == Some(&job.job_id) {
-                    "Hide History"
-                } else {
-                    "History"
-                };
-                if ui.small_button(history_label).clicked() {
-                    if tab_state.expanded_history.as_deref() == Some(&job.job_id) {
-                        tab_state.expanded_history = None;
-                    } else {
-                        tab_state.expanded_history = Some(job.job_id.clone());
-                    }
-                }
-            });
-
-            // Execution history (expandable).
-            if tab_state.expanded_history.as_deref() == Some(&job.job_id) && !job.history.is_empty()
+        // Action buttons.
+        ui.horizontal(|ui| {
+            if Button::new("Run Now")
+                .style(ButtonStyle::Bordered)
+                .small(true)
+                .show(ui)
+                .clicked()
             {
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(4.0);
+                let _ = tx.send(Action::RunJobNow {
+                    job_id: job.job_id.clone(),
+                });
+            }
 
+            let toggle_label = if job.enabled { "Disable" } else { "Enable" };
+            if Button::new(toggle_label)
+                .style(ButtonStyle::Bordered)
+                .small(true)
+                .show(ui)
+                .clicked()
+            {
+                let _ = tx.send(Action::ToggleJob {
+                    job_id: job.job_id.clone(),
+                    enabled: !job.enabled,
+                });
+            }
+
+            if Button::new("Delete")
+                .style(ButtonStyle::Destructive)
+                .small(true)
+                .show(ui)
+                .clicked()
+            {
+                let _ = tx.send(Action::DeleteJob {
+                    job_id: job.job_id.clone(),
+                });
+            }
+        });
+
+        // Expandable execution history.
+        if !job.history.is_empty() {
+            let mut expanded =
+                tab_state.expanded_history.as_deref() == Some(&job.job_id);
+            DisclosureGroup::new("Run History", &mut expanded).show(ui, |ui| {
                 for run in job.history.iter().rev().take(10) {
-                    let status_icon = match run.status {
-                        JobRunStatus::Success => "\u{2713}",
-                        JobRunStatus::Failure => "\u{2717}",
-                        JobRunStatus::Running => "\u{25cf}",
-                        JobRunStatus::Cancelled => "\u{2014}",
-                    };
-                    let run_color = match run.status {
-                        JobRunStatus::Success => p.status_green,
-                        JobRunStatus::Failure => p.status_red,
-                        JobRunStatus::Running => p.accent,
-                        JobRunStatus::Cancelled => p.text_muted,
+                    let (status_icon, run_color) = match run.status {
+                        JobRunStatus::Success => ("\u{2713}", p.status_green),
+                        JobRunStatus::Failure => ("\u{2717}", p.status_red),
+                        JobRunStatus::Running => ("\u{25cf}", p.accent),
+                        JobRunStatus::Cancelled => ("\u{2014}", p.text_muted),
                     };
 
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(status_icon).color(run_color).size(12.0),
+                            egui::RichText::new(status_icon)
+                                .color(run_color)
+                                .size(12.0),
                         );
                         ui.label(
-                            egui::RichText::new(run.started_at.format("%m-%d %H:%M").to_string())
-                                .size(11.0)
-                                .monospace()
-                                .color(p.text_secondary),
+                            egui::RichText::new(
+                                run.started_at.format("%m-%d %H:%M").to_string(),
+                            )
+                            .size(11.0)
+                            .monospace()
+                            .color(p.text_secondary),
                         );
                         if let Some(ms) = run.duration_ms {
                             ui.label(
@@ -367,7 +391,9 @@ fn show_job_card(
                         }
                         if let Some(ref err) = run.error {
                             ui.label(
-                                egui::RichText::new(err).size(11.0).color(p.status_red),
+                                egui::RichText::new(err)
+                                    .size(11.0)
+                                    .color(p.status_red),
                             );
                         }
                         if let Some(ref summary) = run.output_summary {
@@ -377,13 +403,23 @@ fn show_job_card(
                                 summary.clone()
                             };
                             ui.label(
-                                egui::RichText::new(short).size(11.0).color(p.text_muted),
+                                egui::RichText::new(short)
+                                    .size(11.0)
+                                    .color(p.text_muted),
                             );
                         }
                     });
                 }
+            });
+
+            // Sync the expanded state back.
+            if expanded {
+                tab_state.expanded_history = Some(job.job_id.clone());
+            } else if tab_state.expanded_history.as_deref() == Some(&job.job_id) {
+                tab_state.expanded_history = None;
             }
-        });
+        }
+    });
 }
 
 fn format_schedule(sched: &ScheduleDefinition) -> String {

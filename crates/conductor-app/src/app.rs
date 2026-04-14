@@ -4,11 +4,13 @@ use conductor_core::config;
 use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::AppState;
+use egui_swift::colors;
+use egui_swift::icons;
 use egui_swift::suggestion_chip;
+use egui_swift::theme::Layout;
 
 use crate::bridge::SharedState;
 use crate::runtime::RuntimeHandle;
-use crate::theme::Theme;
 use crate::ui;
 
 pub struct ConductorApp {
@@ -59,12 +61,7 @@ impl ConductorApp {
 
 impl eframe::App for ConductorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let dark = ctx.style().visuals.dark_mode;
-        let p = if dark {
-            egui_swift::colors::dark()
-        } else {
-            egui_swift::colors::light()
-        };
+        let p = colors::palette_from_ctx(ctx);
 
         // Settings view.
         {
@@ -76,10 +73,10 @@ impl eframe::App for ConductorApp {
             }
         }
 
-        // -- Sidebar (using egui-swift SidebarPanel) --
+        // -- Sidebar --
         if self.sidebar_open {
             egui_swift::sidebar::SidebarPanel::new()
-                .width(Theme::SIDEBAR_WIDTH)
+                .width(Layout::SIDEBAR_WIDTH)
                 .show(ctx, |ui| {
                     ui::sidebar::show(
                         ui,
@@ -159,7 +156,7 @@ impl eframe::App for ConductorApp {
                 .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
                     let available_width = ui.available_width();
-                    let content_width = available_width.min(Theme::MAX_CONTENT_WIDTH);
+                    let content_width = available_width.min(Layout::MAX_CONTENT_WIDTH);
                     let side_padding = ((available_width - content_width) / 2.0).max(24.0);
                     let available_height = ui.available_height();
 
@@ -174,9 +171,12 @@ impl eframe::App for ConductorApp {
                                 ui.vertical_centered(|ui| {
                                     let greeting = time_greeting();
                                     ui.label(
-                                        egui::RichText::new(format!("\u{2728}  {greeting}"))
-                                            .size(26.0)
-                                            .color(p.text_primary),
+                                        egui::RichText::new(format!(
+                                            "{}  {greeting}",
+                                            icons::SPARKLE
+                                        ))
+                                        .size(26.0)
+                                        .color(p.text_primary),
                                     );
                                 });
                             });
@@ -196,14 +196,14 @@ impl eframe::App for ConductorApp {
 
                         ui.add_space(16.0);
 
-                        // Suggestion chips (using egui-swift).
+                        // Suggestion chips.
                         ui.vertical_centered(|ui| {
                             suggestion_chip::chip_row(
                                 ui,
                                 &[
                                     ("\u{270f}", "Write"),
                                     ("\u{1f4d6}", "Learn"),
-                                    ("</>" , "Code"),
+                                    ("</>", "Code"),
                                     ("\u{1f4a1}", "Brainstorm"),
                                 ],
                             );

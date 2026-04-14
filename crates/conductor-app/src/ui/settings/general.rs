@@ -1,6 +1,10 @@
 use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
+use egui_swift::colors;
+use egui_swift::form_section::FormSection;
+use egui_swift::radio_group::RadioGroup;
+use egui_swift::toggle::Toggle;
 
 use crate::bridge::SharedState;
 
@@ -9,53 +13,54 @@ pub fn show(
     shared: &SharedState,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    ui.heading("General Settings");
-    ui.add_space(12.0);
+    let p = colors::palette(ui);
+
+    ui.label(
+        egui::RichText::new("General")
+            .size(22.0)
+            .strong()
+            .color(p.text_primary),
+    );
+    ui.add_space(16.0);
 
     let mut config = shared.read().config.clone();
     let mut changed = false;
 
     // -- Connection Mode --
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("Connection Mode").strong());
-        ui.add_space(4.0);
-
-        let modes = ["standalone", "local_server", "remote_server"];
-        let labels = ["Standalone", "Local Server", "Remote Server"];
-        for (mode, label) in modes.iter().zip(labels.iter()) {
-            if ui
-                .radio_value(&mut config.general.connection_mode, mode.to_string(), *label)
-                .changed()
-            {
-                changed = true;
-            }
-        }
+    FormSection::new().header("Connection Mode").show(ui, |ui| {
+        let modes: Vec<(String, &str)> = vec![
+            ("standalone".into(), "Standalone"),
+            ("local_server".into(), "Local Server"),
+            ("remote_server".into(), "Remote Server"),
+        ];
+        RadioGroup::new(&mut config.general.connection_mode, &modes).show(ui);
+        changed = true; // RadioGroup mutates in place; we always sync
     });
 
     ui.add_space(12.0);
 
     // -- Behavior --
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("Behavior").strong());
+    FormSection::new().header("Behavior").show(ui, |ui| {
+        if Toggle::new(&mut config.general.auto_hide_panel)
+            .label("Auto-hide panel on focus loss")
+            .show(ui)
+            .clicked()
+        {
+            changed = true;
+        }
         ui.add_space(4.0);
-
-        if ui
-            .checkbox(&mut config.general.auto_hide_panel, "Auto-hide panel on focus loss")
-            .changed()
+        if Toggle::new(&mut config.general.launch_at_login)
+            .label("Launch at login")
+            .show(ui)
+            .clicked()
         {
             changed = true;
         }
-
-        if ui
-            .checkbox(&mut config.general.launch_at_login, "Launch at login")
-            .changed()
-        {
-            changed = true;
-        }
-
-        if ui
-            .checkbox(&mut config.general.check_updates, "Check for updates")
-            .changed()
+        ui.add_space(4.0);
+        if Toggle::new(&mut config.general.check_updates)
+            .label("Check for updates")
+            .show(ui)
+            .clicked()
         {
             changed = true;
         }
@@ -64,30 +69,17 @@ pub fn show(
     ui.add_space(12.0);
 
     // -- Logging --
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("Logging").strong());
-        ui.add_space(4.0);
-
-        ui.horizontal(|ui| {
-            ui.label("Log level:");
-            let levels = ["trace", "debug", "info", "warn", "error"];
-            egui::ComboBox::from_id_salt("log_level")
-                .selected_text(&config.logging.level)
-                .show_ui(ui, |ui| {
-                    for level in levels {
-                        if ui
-                            .selectable_value(
-                                &mut config.logging.level,
-                                level.to_string(),
-                                level,
-                            )
-                            .changed()
-                        {
-                            changed = true;
-                        }
-                    }
-                });
-        });
+    FormSection::new().header("Logging").show(ui, |ui| {
+        let levels: Vec<(String, &str)> = vec![
+            ("trace".into(), "Trace"),
+            ("debug".into(), "Debug"),
+            ("info".into(), "Info"),
+            ("warn".into(), "Warn"),
+            ("error".into(), "Error"),
+        ];
+        egui_swift::picker::Picker::new("Log level", &mut config.logging.level, &levels)
+            .show(ui);
+        changed = true;
     });
 
     ui.add_space(16.0);

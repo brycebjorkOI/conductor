@@ -4,6 +4,8 @@ use conductor_core::events::Action;
 use conductor_core::session;
 use conductor_core::state::SettingsTab;
 use egui_swift::conversation_item::ConversationItem;
+use egui_swift::divider::Divider;
+use egui_swift::icons;
 use egui_swift::nav_row::NavRow;
 use egui_swift::search_field::SearchField;
 use egui_swift::section_header::SectionHeader;
@@ -48,7 +50,11 @@ pub fn show(
     drop(state);
 
     // -- New Conversation button --
-    if NavRow::new("New Conversation").icon("+").show(ui).clicked() {
+    if NavRow::new("New Conversation")
+        .icon(icons::PLUS)
+        .show(ui)
+        .clicked()
+    {
         let _ = tx.send(Action::NewSession);
     }
 
@@ -66,24 +72,48 @@ pub fn show(
     ui.add_space(8.0);
 
     // -- Nav items --
-    // The screenshot shows: Chats, Projects, Schedules, Notifications, Trash
-    if NavRow::new("Chats").icon("\u{1f4ac}").active(true).show(ui).clicked() {
+    if NavRow::new("Chats")
+        .icon(icons::SPEECH_BALLOON)
+        .active(true)
+        .show(ui)
+        .clicked()
+    {
         // already on chats
     }
-    if NavRow::new("Projects").icon("\u{1f4c1}").show(ui).clicked() {
+    if NavRow::new("Projects")
+        .icon(icons::FOLDER)
+        .show(ui)
+        .clicked()
+    {
         // future
     }
-    if NavRow::new("Schedules").icon("\u{1f4c5}").show(ui).clicked() {
-        let _ = tx.send(Action::OpenSettings { tab: Some(SettingsTab::Schedules) });
+    if NavRow::new("Schedules")
+        .icon(icons::CALENDAR)
+        .show(ui)
+        .clicked()
+    {
+        let _ = tx.send(Action::OpenSettings {
+            tab: Some(SettingsTab::Schedules),
+        });
     }
-    if NavRow::new("Notifications").icon("\u{1f514}").show(ui).clicked() {
+    if NavRow::new("Notifications")
+        .icon(icons::BELL)
+        .show(ui)
+        .clicked()
+    {
         // future
     }
-    if NavRow::new("Trash").icon("\u{1f5d1}").show(ui).clicked() {
+    if NavRow::new("Trash")
+        .icon(icons::WASTEBASKET)
+        .show(ui)
+        .clicked()
+    {
         // future
     }
 
-    ui.add_space(12.0);
+    ui.add_space(8.0);
+    Divider::new().inset(8.0).show(ui);
+    ui.add_space(4.0);
 
     // -- Recent section header --
     SectionHeader::new("Recent").show(ui);
@@ -94,7 +124,6 @@ pub fn show(
     egui::ScrollArea::vertical()
         .auto_shrink([false; 2])
         .show(ui, |ui| {
-            // Filter by search query.
             let query = sidebar_state.search_query.to_lowercase();
             for (id, name) in &sessions {
                 if !query.is_empty() && !name.to_lowercase().contains(&query) {
@@ -120,8 +149,11 @@ pub fn show(
             .version(concat!("v", env!("CARGO_PKG_VERSION")))
             .show(ui);
         if resp.settings_clicked {
-            let _ = tx.send(Action::OpenSettings { tab: Some(SettingsTab::General) });
+            let _ = tx.send(Action::OpenSettings {
+                tab: Some(SettingsTab::General),
+            });
         }
+        Divider::new().inset(8.0).show(ui);
         ui.add_space(4.0);
     });
 }

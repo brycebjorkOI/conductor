@@ -3,9 +3,9 @@ use tokio::sync::mpsc;
 use conductor_core::commands;
 use conductor_core::events::Action;
 use conductor_core::state::SessionId;
+use egui_swift::card::Card;
 use egui_swift::chat_input::ChatInput;
-
-use crate::theme::Theme;
+use egui_swift::theme::Layout;
 
 pub fn show(
     ui: &mut egui::Ui,
@@ -15,29 +15,27 @@ pub fn show(
     active_session_id: &SessionId,
     tx: &mpsc::UnboundedSender<Action>,
 ) {
-    let p = egui_swift::colors::palette(ui);
-
     // Autocomplete popup (rendered above the input).
     if *show_autocomplete && input_text.starts_with('/') {
         let prefix = &input_text[1..];
         let suggestions = commands::autocomplete(prefix);
         if !suggestions.is_empty() {
             let available_width = ui.available_width();
-            let content_width = available_width.min(Theme::MAX_CONTENT_WIDTH);
+            let content_width = available_width.min(Layout::MAX_CONTENT_WIDTH);
             let side = ((available_width - content_width) / 2.0).max(20.0);
 
             ui.horizontal(|ui| {
                 ui.add_space(side);
-                egui::Frame::NONE
-                    .fill(p.surface_raised)
-                    .corner_radius(egui::CornerRadius::same(10))
-                    .stroke(egui::Stroke::new(1.0, p.border))
-                    .inner_margin(egui::Margin::symmetric(8, 4))
+                Card::new()
+                    .padding(egui::Margin::symmetric(8, 4))
                     .show(ui, |ui| {
                         for (cmd, desc) in suggestions {
                             let label = format!("/{cmd}  \u{2014}  {desc}");
                             if ui
-                                .selectable_label(false, egui::RichText::new(label).size(13.0))
+                                .selectable_label(
+                                    false,
+                                    egui::RichText::new(label).size(13.0),
+                                )
                                 .clicked()
                             {
                                 *input_text = format!("/{cmd} ");
@@ -56,7 +54,7 @@ pub fn show(
     let resp = ChatInput::new(input_text)
         .placeholder("Type / for commands")
         .streaming(is_streaming)
-        .max_width(Theme::MAX_CONTENT_WIDTH)
+        .max_width(Layout::MAX_CONTENT_WIDTH)
         .show(ui);
 
     if resp.text_response.changed() {

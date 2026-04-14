@@ -1,5 +1,8 @@
 use conductor_core::state::*;
+use egui_swift::card::Card;
 use egui_swift::colors;
+use egui_swift::divider::Divider;
+use egui_swift::icons;
 use egui_swift::theme::Layout;
 
 pub fn show(ui: &mut egui::Ui, session: &Session) {
@@ -59,7 +62,11 @@ pub fn show(ui: &mut egui::Ui, session: &Session) {
 fn render_empty_state(ui: &mut egui::Ui) {
     let p = colors::palette(ui);
     let greeting = {
-        let hour = chrono::Local::now().format("%H").to_string().parse::<u32>().unwrap_or(12);
+        let hour = chrono::Local::now()
+            .format("%H")
+            .to_string()
+            .parse::<u32>()
+            .unwrap_or(12);
         if hour < 12 {
             "Good morning"
         } else if hour < 18 {
@@ -75,7 +82,7 @@ fn render_empty_state(ui: &mut egui::Ui) {
 
     ui.vertical_centered(|ui| {
         ui.label(
-            egui::RichText::new(format!("\u{2728}  {greeting}"))
+            egui::RichText::new(format!("{}  {greeting}", icons::SPARKLE))
                 .size(26.0)
                 .color(p.text_primary),
         );
@@ -137,8 +144,7 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
 
     if !msg.content.is_empty() {
         let mut cache = egui_commonmark::CommonMarkCache::default();
-        egui_commonmark::CommonMarkViewer::new()
-            .show(ui, &mut cache, &msg.content);
+        egui_commonmark::CommonMarkViewer::new().show(ui, &mut cache, &msg.content);
     }
 
     if msg.status == MessageStatus::Cancelled {
@@ -169,7 +175,7 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
         if !parts.is_empty() {
             ui.label(
                 egui::RichText::new(parts.join(" \u{00b7} "))
-                    .size(11.0)
+                    .size(Layout::CAPTION_FONT_SIZE)
                     .color(p.text_muted),
             );
         }
@@ -190,10 +196,9 @@ fn render_system_message(ui: &mut egui::Ui, msg: &Message) {
 
 fn render_error_message(ui: &mut egui::Ui, msg: &Message) {
     let p = colors::palette(ui);
-    egui::Frame::NONE
-        .fill(p.error_bg)
-        .corner_radius(egui::CornerRadius::same(12))
-        .inner_margin(egui::Margin::symmetric(16, 10))
+    Card::new()
+        .border_color(p.status_red)
+        .padding(egui::Margin::symmetric(16, 10))
         .show(ui, |ui| {
             ui.set_max_width(Layout::MAX_CONTENT_WIDTH);
             ui.label(
@@ -206,17 +211,15 @@ fn render_error_message(ui: &mut egui::Ui, msg: &Message) {
 
 fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
     let p = colors::palette(ui);
-    egui::Frame::NONE
-        .fill(p.tool_card_bg)
-        .corner_radius(egui::CornerRadius::same(8))
-        .inner_margin(egui::Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            let (status_icon, status_color) = match card.phase {
-                ToolPhase::Started => ("\u{25cf}", p.status_yellow),
-                ToolPhase::Completed => ("\u{2713}", p.status_green),
-                ToolPhase::Failed => ("\u{2717}", p.status_red),
-            };
+    let (status_icon, status_color) = match card.phase {
+        ToolPhase::Started => (icons::CIRCLE_FILLED, p.status_yellow),
+        ToolPhase::Completed => (icons::CHECKMARK, p.status_green),
+        ToolPhase::Failed => (icons::XMARK, p.status_red),
+    };
 
+    Card::new()
+        .padding(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| {
             egui::CollapsingHeader::new(
                 egui::RichText::new(format!("{status_icon}  {}", card.tool_name))
                     .size(12.0)
@@ -230,7 +233,7 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
                         ui.label(
                             egui::RichText::new(format!("{key}:"))
                                 .monospace()
-                                .size(11.0)
+                                .size(Layout::CAPTION_FONT_SIZE)
                                 .color(p.text_secondary),
                         );
                         let val_str = match value {
@@ -240,19 +243,19 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard) {
                         ui.label(
                             egui::RichText::new(val_str)
                                 .monospace()
-                                .size(11.0)
+                                .size(Layout::CAPTION_FONT_SIZE)
                                 .color(p.text_primary),
                         );
                     });
                 }
                 if let Some(ref result) = card.result {
                     ui.add_space(4.0);
-                    ui.separator();
+                    Divider::new().show(ui);
                     ui.add_space(4.0);
                     ui.label(
                         egui::RichText::new(result)
                             .monospace()
-                            .size(11.0)
+                            .size(Layout::CAPTION_FONT_SIZE)
                             .color(p.text_secondary),
                     );
                 }
