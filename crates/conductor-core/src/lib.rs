@@ -12,3 +12,4 @@ pub mod channel;
 pub mod connector;
 pub mod scheduler;
 pub mod learning;
+pub mod automation;

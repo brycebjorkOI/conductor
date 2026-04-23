@@ -39,6 +39,24 @@ impl RuntimeHandle {
             run_backend_scan(shared_scan).await;
         });
 
+        // Auto-connect to Slack if slackdump is available.
+        let shared_slack = shared.clone();
+        let tx_slack = action_tx.clone();
+        runtime.spawn(async move {
+            slack_connect(shared_slack, tx_slack).await;
+        });
+
+        // Load persisted automation rules.
+        {
+            let saved_rules = conductor_core::automation::load_rules();
+            if !saved_rules.is_empty() {
+                tracing::info!("restored {} automation rules", saved_rules.len());
+                shared.mutate(|s| {
+                    s.automation_rules = saved_rules;
+                });
+            }
+        }
+
         // Load persisted jobs and start the scheduler loop.
         let shared_sched = shared.clone();
         let tx_sched = action_tx.clone();
@@ -221,6 +239,7 @@ async fn dispatcher(
     _tx: mpsc::UnboundedSender<Action>,
 ) {
     let mut cancel_map: CancelMap = HashMap::new();
+    let mut slack_poll_handle: Option<tokio::task::JoinHandle<()>> = None;
     let backend_defs = all_known_backends();
 
     while let Some(action) = rx.recv().await {
@@ -557,6 +576,105 @@ async fn dispatcher(
                 });
             }
 
+            // -- Automation actions --
+            Action::CreateAutomation { rule } => {
+                shared.mutate(|s| {
+                    s.automation_rules.push(rule);
+                });
+                persist_automations(&shared);
+                sync_slack_monitors(&shared, &mut slack_poll_handle, &_tx);
+            }
+
+            Action::DeleteAutomation { rule_id } => {
+                shared.mutate(|s| {
+                    s.automation_rules.retain(|r| r.rule_id != rule_id);
+                });
+                persist_automations(&shared);
+                sync_slack_monitors(&shared, &mut slack_poll_handle, &_tx);
+            }
+
+            Action::ToggleAutomation { rule_id, enabled } => {
+                shared.mutate(|s| {
+                    if let Some(rule) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
+                        rule.enabled = enabled;
+                    }
+                });
+                persist_automations(&shared);
+                sync_slack_monitors(&shared, &mut slack_poll_handle, &_tx);
+            }
+
+            Action::RunAutomation { rule_id, event_context } => {
+                let shared_run = shared.clone();
+                let tx_run = _tx.clone();
+                tokio::spawn(async move {
+                    run_automation(shared_run, tx_run, rule_id, event_context).await;
+                });
+            }
+
+            // -- Slack actions --
+            Action::SlackConnect => {
+                let shared_slack = shared.clone();
+                let tx_slack = _tx.clone();
+                tokio::spawn(async move {
+                    slack_connect(shared_slack, tx_slack).await;
+                });
+            }
+
+            Action::SlackDisconnect => {
+                if let Some(handle) = slack_poll_handle.take() {
+                    handle.abort();
+                }
+                shared.mutate(|s| {
+                    s.slack.status = SlackStatus::Disconnected;
+                    s.slack.workspace_name = None;
+                    s.slack.channels.clear();
+                    s.slack.monitored_channels.clear();
+                    s.slack.error = None;
+                });
+            }
+
+            Action::SlackRefreshChannels => {
+                let shared_slack = shared.clone();
+                tokio::spawn(async move {
+                    slack_refresh_channels(shared_slack).await;
+                });
+            }
+
+            Action::SlackMonitorChannel { channel_id } => {
+                shared.mutate(|s| {
+                    if !s.slack.monitored_channels.contains(&channel_id) {
+                        s.slack.monitored_channels.push(channel_id.clone());
+                    }
+                });
+                tracing::info!("monitoring Slack channel {channel_id}");
+
+                // Start the unified poll loop if not already running.
+                if slack_poll_handle.is_none() {
+                    let shared_poll = shared.clone();
+                    let tx_poll = _tx.clone();
+                    slack_poll_handle = Some(tokio::spawn(async move {
+                        slack_poll_loop(shared_poll, tx_poll).await;
+                    }));
+                    tracing::info!("started Slack poll loop");
+                }
+            }
+
+            Action::SlackUnmonitorChannel { channel_id } => {
+                shared.mutate(|s| {
+                    s.slack.monitored_channels.retain(|id| id != &channel_id);
+                });
+                tracing::info!("unmonitored Slack channel {channel_id}");
+
+                // Stop the loop if no more channels are monitored.
+                let still_monitoring = !shared.read().slack.monitored_channels.is_empty();
+                if !still_monitoring {
+                    if let Some(handle) = slack_poll_handle.take() {
+                        handle.abort();
+                        tracing::info!("stopped Slack poll loop (no monitored channels)");
+                    }
+                }
+            }
+
             Action::ToggleNotifications => {
                 shared.mutate(|s| {
                     s.notifications_open = !s.notifications_open;
@@ -604,6 +722,13 @@ fn persist_jobs(shared: &SharedState) {
     let jobs = shared.read().scheduler.jobs.clone();
     if let Err(e) = conductor_core::scheduler::persistence::save_jobs(&jobs) {
         tracing::error!("failed to persist jobs: {e}");
+    }
+}
+
+fn persist_automations(shared: &SharedState) {
+    let rules = shared.read().automation_rules.clone();
+    if let Err(e) = conductor_core::automation::save_rules(&rules) {
+        tracing::error!("failed to persist automations: {e}");
     }
 }
 
@@ -668,6 +793,492 @@ async fn run_job_now(shared: SharedState, job_id: String) {
 
     persist_jobs(&shared);
     tracing::info!("job '{}' completed with status {:?}", job.name, completed_run.status);
+}
+
+/// Ensure all Slack channels referenced by enabled automation rules are monitored,
+/// and start/stop the poll loop as needed.
+fn sync_slack_monitors(
+    shared: &SharedState,
+    slack_poll_handle: &mut Option<tokio::task::JoinHandle<()>>,
+    tx: &mpsc::UnboundedSender<Action>,
+) {
+    let state = shared.read();
+
+    // Collect channel names needed by enabled automation rules.
+    let mut needed_channels: Vec<String> = Vec::new();
+    for rule in &state.automation_rules {
+        if !rule.enabled {
+            continue;
+        }
+        match &rule.trigger {
+            TriggerCondition::SlackMessage { channel_name, .. } => {
+                let name = channel_name.trim_start_matches('#').to_lowercase();
+                // Find the channel ID for this name.
+                if let Some(ch) = state.slack.channels.iter().find(|c| c.name.to_lowercase() == name) {
+                    if !needed_channels.contains(&ch.id) {
+                        needed_channels.push(ch.id.clone());
+                    }
+                }
+            }
+            TriggerCondition::ChannelMessage { platform_id, channel_filter, .. } => {
+                if platform_id == "slack" {
+                    if let Some(filter) = channel_filter {
+                        let name = filter.trim_start_matches('#').to_lowercase();
+                        if let Some(ch) = state.slack.channels.iter().find(|c| c.name.to_lowercase() == name) {
+                            if !needed_channels.contains(&ch.id) {
+                                needed_channels.push(ch.id.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let current = state.slack.monitored_channels.clone();
+    drop(state);
+
+    // Add any missing channels to the monitored list.
+    for cid in &needed_channels {
+        if !current.contains(cid) {
+            shared.mutate(|s| {
+                if !s.slack.monitored_channels.contains(cid) {
+                    s.slack.monitored_channels.push(cid.clone());
+                }
+            });
+            tracing::info!("auto-monitoring Slack channel {cid} (used by automation)");
+        }
+    }
+
+    // Start the poll loop if we now have monitored channels and it's not running.
+    let has_monitored = !shared.read().slack.monitored_channels.is_empty();
+    if has_monitored && slack_poll_handle.is_none() {
+        let shared_poll = shared.clone();
+        let tx_poll = tx.clone();
+        *slack_poll_handle = Some(tokio::spawn(async move {
+            slack_poll_loop(shared_poll, tx_poll).await;
+        }));
+        tracing::info!("started Slack poll loop (auto-monitor)");
+    }
+
+    // Stop the loop if nothing is monitored anymore.
+    if !has_monitored {
+        if let Some(handle) = slack_poll_handle.take() {
+            handle.abort();
+            tracing::info!("stopped Slack poll loop (no monitored channels)");
+        }
+    }
+}
+
+/// Single poll loop that fetches all monitored Slack channels every 60 seconds.
+/// Matches incoming messages against automation rules and fires triggers.
+async fn slack_poll_loop(shared: SharedState, tx: mpsc::UnboundedSender<Action>) {
+    use conductor_core::channel::slack;
+
+    let poll_interval = std::time::Duration::from_secs(60);
+    let mut last_ts = chrono::Utc::now();
+
+    loop {
+        tokio::time::sleep(poll_interval).await;
+
+        // Read current monitored channels + channel name map.
+        let (monitored, channel_map) = {
+            let state = shared.read();
+            let monitored = state.slack.monitored_channels.clone();
+            let map: HashMap<String, String> = state
+                .slack
+                .channels
+                .iter()
+                .map(|c| (c.id.clone(), c.name.clone()))
+                .collect();
+            (monitored, map)
+        };
+
+        if monitored.is_empty() {
+            continue;
+        }
+
+        // Single slackdump call for all monitored channels.
+        match slack::fetch_recent_messages(&monitored, last_ts).await {
+            Ok(messages) => {
+                if !messages.is_empty() {
+                    tracing::debug!("Slack poll: {} new messages across {} channels", messages.len(), monitored.len());
+                }
+
+                // Advance watermark.
+                for msg in &messages {
+                    if let Some(t) = slack::parse_slack_ts(&msg.ts) {
+                        if t > last_ts {
+                            last_ts = t;
+                        }
+                    }
+                }
+
+                // Match each message against automation rules.
+                let rules = shared.read().automation_rules.clone();
+
+                for msg in &messages {
+                    let channel_name = channel_map
+                        .get(&msg.channel_id)
+                        .cloned()
+                        .unwrap_or_else(|| msg.channel_id.clone());
+
+                    for rule in &rules {
+                        if !rule.enabled {
+                            continue;
+                        }
+
+                        if matches_slack_trigger(rule, &channel_name, &msg.text) {
+                            tracing::info!(
+                                "Slack message matched automation '{}' in #{}",
+                                rule.name,
+                                channel_name
+                            );
+
+                            let event_context = format!(
+                                "Slack message in #{channel_name} from user {}:\n{}",
+                                msg.user, msg.text
+                            );
+
+                            let _ = tx.send(Action::RunAutomation {
+                                rule_id: rule.rule_id.clone(),
+                                event_context: Some(event_context),
+                            });
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Slack poll failed: {e}");
+            }
+        }
+    }
+}
+
+/// Check if an automation rule's trigger matches a Slack message.
+fn matches_slack_trigger(rule: &AutomationRule, channel_name: &str, text: &str) -> bool {
+    match &rule.trigger {
+        TriggerCondition::SlackMessage {
+            channel_name: trigger_channel,
+            keyword_filter,
+        } => {
+            let trigger_ch = trigger_channel.trim_start_matches('#');
+            if !trigger_ch.eq_ignore_ascii_case(channel_name) {
+                return false;
+            }
+            match keyword_filter {
+                None => true,
+                Some(kw) => {
+                    let lower = text.to_lowercase();
+                    kw.split(',')
+                        .map(|k| k.trim().to_lowercase())
+                        .any(|k| lower.contains(&k))
+                }
+            }
+        }
+        TriggerCondition::ChannelMessage {
+            platform_id,
+            channel_filter,
+            keyword_filter,
+        } => {
+            if platform_id != "slack" {
+                return false;
+            }
+            if let Some(filter) = channel_filter {
+                let f = filter.trim_start_matches('#');
+                if !f.eq_ignore_ascii_case(channel_name) {
+                    return false;
+                }
+            }
+            match keyword_filter {
+                None => true,
+                Some(kw) => {
+                    let lower = text.to_lowercase();
+                    kw.split(',')
+                        .map(|k| k.trim().to_lowercase())
+                        .any(|k| lower.contains(&k))
+                }
+            }
+        }
+        _ => false,
+    }
+}
+
+async fn slack_connect(shared: SharedState, tx: mpsc::UnboundedSender<Action>) {
+    use conductor_core::channel::slack;
+
+    shared.mutate(|s| {
+        s.slack.status = SlackStatus::Checking;
+        s.slack.error = None;
+    });
+
+    // Check if slackdump is installed.
+    if slack::find_slackdump().is_none() {
+        shared.mutate(|s| {
+            s.slack.status = SlackStatus::Error;
+            s.slack.error = Some("slackdump not found. Install with: brew install slackdump".into());
+        });
+        return;
+    }
+
+    // Check if a workspace is configured.
+    if !slack::has_workspace().await {
+        shared.mutate(|s| {
+            s.slack.status = SlackStatus::Error;
+            s.slack.error = Some("No Slack workspace configured. Run: slackdump workspace new".into());
+        });
+        return;
+    }
+
+    // Get workspace name.
+    match slack::current_workspace().await {
+        Ok(name) => {
+            shared.mutate(|s| {
+                s.slack.workspace_name = Some(name);
+                s.slack.status = SlackStatus::Connected;
+            });
+            tracing::info!("Slack connected");
+        }
+        Err(e) => {
+            shared.mutate(|s| {
+                s.slack.status = SlackStatus::Error;
+                s.slack.error = Some(e);
+            });
+            return;
+        }
+    }
+
+    // Load channels.
+    slack_refresh_channels(shared.clone()).await;
+
+    // Auto-monitor channels needed by persisted automation rules.
+    let needed: Vec<String> = {
+        let state = shared.read();
+        let mut ids = Vec::new();
+        for rule in &state.automation_rules {
+            if !rule.enabled {
+                continue;
+            }
+            match &rule.trigger {
+                TriggerCondition::SlackMessage { channel_name, .. } => {
+                    let name = channel_name.trim_start_matches('#').to_lowercase();
+                    if let Some(ch) = state.slack.channels.iter().find(|c| c.name.to_lowercase() == name) {
+                        if !ids.contains(&ch.id) {
+                            ids.push(ch.id.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        ids
+    };
+
+    for cid in needed {
+        let _ = tx.send(Action::SlackMonitorChannel { channel_id: cid });
+    }
+}
+
+async fn slack_refresh_channels(shared: SharedState) {
+    use conductor_core::channel::slack;
+
+    match slack::list_channels().await {
+        Ok(channels) => {
+            shared.mutate(|s| {
+                s.slack.channels = channels
+                    .into_iter()
+                    .map(|ch| SlackChannelInfo {
+                        id: ch.id,
+                        name: ch.name,
+                        is_private: ch.is_private,
+                    })
+                    .collect();
+            });
+            tracing::info!("Slack channels refreshed");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to list Slack channels: {e}");
+            shared.mutate(|s| {
+                s.slack.error = Some(format!("Failed to list channels: {e}"));
+            });
+        }
+    }
+}
+
+async fn run_automation(
+    shared: SharedState,
+    tx: mpsc::UnboundedSender<Action>,
+    rule_id: String,
+    event_context: Option<String>,
+) {
+    let rule = {
+        let state = shared.read();
+        state.automation_rules.iter().find(|r| r.rule_id == rule_id).cloned()
+    };
+
+    let Some(rule) = rule else {
+        tracing::warn!("RunAutomation: rule {rule_id} not found");
+        return;
+    };
+
+    tracing::info!("running automation '{}'", rule.name);
+
+    // Create a run entry.
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let run = AutomationRunEntry {
+        run_id: run_id.clone(),
+        started_at: chrono::Utc::now(),
+        completed_at: None,
+        duration_ms: None,
+        status: JobRunStatus::Running,
+        trigger_event: event_context.clone(),
+        error: None,
+        output_summary: None,
+    };
+
+    shared.mutate(|s| {
+        if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
+            r.history.push(run.clone());
+        }
+    });
+
+    let start = std::time::Instant::now();
+
+    match &rule.action {
+        AutomationAction::RunPrompt {
+            prompt,
+            include_event_context,
+            backend_override: _,
+            model_override: _,
+        } => {
+            // Build the full prompt, optionally injecting event context.
+            let full_prompt = if *include_event_context {
+                if let Some(ref ctx) = event_context {
+                    format!("Event context:\n{ctx}\n\n---\n\n{prompt}")
+                } else {
+                    prompt.clone()
+                }
+            } else {
+                prompt.clone()
+            };
+
+            // Create a temporary job and execute it using existing infra.
+            let (registry, fallback, default_backend) = {
+                let state = shared.read();
+                (
+                    state.backend_registry.clone(),
+                    state.fallback_order.clone(),
+                    state.default_backend_id.clone().unwrap_or_else(|| "anthropic".into()),
+                )
+            };
+
+            let temp_job = ScheduledJob {
+                job_id: format!("auto-{run_id}"),
+                name: rule.name.clone(),
+                enabled: true,
+                schedule: ScheduleDefinition::OneTime { datetime: chrono::Utc::now() },
+                payload: JobPayload {
+                    prompt: full_prompt,
+                    execution_mode: ExecutionMode::Isolated,
+                    backend_override: None,
+                    model_override: None,
+                    thinking_level: None,
+                    timeout_seconds: None,
+                },
+                delivery: DeliveryConfig::Silent,
+                retry_policy: RetryPolicy::default(),
+                history: Vec::new(),
+                next_run: None,
+            };
+
+            let completed = conductor_core::scheduler::execute_job(
+                &temp_job,
+                &registry,
+                &fallback,
+                &default_backend,
+                None,
+            )
+            .await;
+
+            let elapsed = start.elapsed().as_millis() as u64;
+
+            // Update the run entry and also push to global job_history.
+            shared.mutate(|s| {
+                if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
+                    r.trigger_count += 1;
+                    r.last_triggered = Some(chrono::Utc::now());
+                    if let Some(entry) = r.history.iter_mut().find(|e| e.run_id == run_id) {
+                        entry.completed_at = Some(chrono::Utc::now());
+                        entry.duration_ms = Some(elapsed);
+                        entry.status = completed.status;
+                        entry.error = completed.error.clone();
+                        entry.output_summary = completed.output_summary.clone();
+                    }
+                }
+                // Also record in the global job history.
+                s.job_history.push(JobHistoryEntry {
+                    run_id: run_id.clone(),
+                    job_name: rule.name.clone(),
+                    job_id: Some(rule.rule_id.clone()),
+                    trigger: JobTrigger::Automation,
+                    started_at: run.started_at,
+                    completed_at: Some(chrono::Utc::now()),
+                    duration_ms: Some(elapsed),
+                    status: completed.status,
+                    error: completed.error,
+                    output_summary: completed.output_summary,
+                    backend_id: None,
+                    prompt_preview: Some(rule.name.clone()),
+                });
+            });
+        }
+
+        AutomationAction::RunJob { job_id } => {
+            let _ = tx.send(Action::RunJobNow { job_id: job_id.clone() });
+
+            let elapsed = start.elapsed().as_millis() as u64;
+            shared.mutate(|s| {
+                if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
+                    r.trigger_count += 1;
+                    r.last_triggered = Some(chrono::Utc::now());
+                    if let Some(entry) = r.history.iter_mut().find(|e| e.run_id == run_id) {
+                        entry.completed_at = Some(chrono::Utc::now());
+                        entry.duration_ms = Some(elapsed);
+                        entry.status = JobRunStatus::Success;
+                        entry.output_summary = Some(format!("Triggered job {job_id}"));
+                    }
+                }
+            });
+        }
+
+        AutomationAction::Notify { message } => {
+            shared.mutate(|s| {
+                s.notifications.push(Notification {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    title: format!("Automation: {}", rule.name),
+                    body: message.clone(),
+                    severity: NotificationSeverity::Info,
+                    timestamp: chrono::Utc::now(),
+                    dismissed: false,
+                });
+
+                if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
+                    r.trigger_count += 1;
+                    r.last_triggered = Some(chrono::Utc::now());
+                    if let Some(entry) = r.history.iter_mut().find(|e| e.run_id == run_id) {
+                        entry.completed_at = Some(chrono::Utc::now());
+                        entry.duration_ms = Some(start.elapsed().as_millis() as u64);
+                        entry.status = JobRunStatus::Success;
+                        entry.output_summary = Some("Notification sent".into());
+                    }
+                }
+            });
+        }
+    }
+
+    persist_automations(&shared);
+    tracing::info!("automation '{}' completed", rule.name);
 }
 
 fn handle_session_command(shared: &SharedState, session_id: &str, cmd: SessionCommand) {

@@ -3,6 +3,8 @@
 //! Each platform adapter implements the `ChannelAdapter` trait. The manager
 //! spawns one tokio task per active channel.
 
+pub mod slack;
+
 use std::time::Duration;
 
 

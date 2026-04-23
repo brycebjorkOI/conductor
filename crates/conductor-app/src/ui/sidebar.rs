@@ -78,13 +78,37 @@ impl View for SidebarView {
             .show(ui)
             .clicked()
         {}
-        if NavRow::new("Schedules")
-            .icon(icons::CALENDAR)
-            .active(current_view == ViewMode::Schedules)
+        if NavRow::new("Jobs")
+            .icon(icons::CHECKMARK)
+            .active(current_view == ViewMode::Jobs)
             .show(ui)
             .clicked()
         {
-            let _ = self.tx.send(Action::ToggleSchedules);
+            self.shared.mutate(|s| {
+                if s.current_view == ViewMode::Jobs {
+                    s.current_view = ViewMode::Chat;
+                } else {
+                    s.current_view = ViewMode::Jobs;
+                    s.settings_open = false;
+                    s.notifications_open = false;
+                }
+            });
+        }
+        if NavRow::new("Automations")
+            .icon(icons::GEAR)
+            .active(current_view == ViewMode::Automations)
+            .show(ui)
+            .clicked()
+        {
+            self.shared.mutate(|s| {
+                if s.current_view == ViewMode::Automations {
+                    s.current_view = ViewMode::Chat;
+                } else {
+                    s.current_view = ViewMode::Automations;
+                    s.settings_open = false;
+                    s.notifications_open = false;
+                }
+            });
         }
         {
             let unread = {

@@ -18,7 +18,8 @@ pub struct ConductorApp {
     input_bar: ui::chat::input_bar::InputBarView,
     settings: ui::settings::SettingsView,
     notifications: ui::notifications::NotificationsView,
-    schedules: ui::schedules::SchedulesView,
+    jobs: ui::jobs::JobsView,
+    automations: ui::automations::AutomationsView,
 }
 
 impl ConductorApp {
@@ -51,7 +52,8 @@ impl ConductorApp {
             input_bar: ui::chat::input_bar::InputBarView::new(tx.clone()),
             settings: ui::settings::SettingsView::new(shared.clone(), tx.clone()),
             notifications: ui::notifications::NotificationsView::new(shared.clone(), tx.clone()),
-            schedules: ui::schedules::SchedulesView::new(shared.clone(), tx),
+            jobs: ui::jobs::JobsView::new(shared.clone()),
+            automations: ui::automations::AutomationsView::new(shared.clone(), tx.clone()),
         }
     }
 
@@ -93,10 +95,18 @@ impl eframe::App for ConductorApp {
             return;
         }
 
-        // Schedules view.
-        if self.shared.read().current_view == conductor_core::state::ViewMode::Schedules {
+        // Jobs view.
+        if self.shared.read().current_view == conductor_core::state::ViewMode::Jobs {
             self.show_with_sidebar(ctx, |app, ui| {
-                app.schedules.show(ui);
+                app.jobs.show(ui);
+            });
+            return;
+        }
+
+        // Automations view.
+        if self.shared.read().current_view == conductor_core::state::ViewMode::Automations {
+            self.show_with_sidebar(ctx, |app, ui| {
+                app.automations.show(ui);
             });
             return;
         }

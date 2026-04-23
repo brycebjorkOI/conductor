@@ -53,6 +53,17 @@ pub enum Action {
         platform_id: String,
     },
 
+    // -- Slack --
+    SlackConnect,
+    SlackDisconnect,
+    SlackRefreshChannels,
+    SlackMonitorChannel {
+        channel_id: String,
+    },
+    SlackUnmonitorChannel {
+        channel_id: String,
+    },
+
     // -- Scheduling --
     CreateJob {
         definition: ScheduledJob,
@@ -72,6 +83,22 @@ pub enum Action {
     ApproveExecution {
         request_id: String,
         response: ApprovalResponse,
+    },
+
+    // -- Automations --
+    CreateAutomation {
+        rule: AutomationRule,
+    },
+    DeleteAutomation {
+        rule_id: String,
+    },
+    ToggleAutomation {
+        rule_id: String,
+        enabled: bool,
+    },
+    RunAutomation {
+        rule_id: String,
+        event_context: Option<String>,
     },
 
     // -- System --

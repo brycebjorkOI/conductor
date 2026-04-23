@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub type SessionId = String;
 pub type MessageId = String;
 pub type JobId = String;
+pub type RuleId = String;
 
 // ---------------------------------------------------------------------------
 // Top-level application state
@@ -32,6 +33,8 @@ pub struct AppState {
     pub voice: VoiceState,
     pub channels: HashMap<String, ChannelState>,
     pub scheduler: SchedulerState,
+    pub job_history: Vec<JobHistoryEntry>,
+    pub automation_rules: Vec<AutomationRule>,
     pub connectors: HashMap<String, ConnectorState>,
     pub server_link: ServerConnectionState,
     pub preferences: LearnedPreferences,
@@ -39,6 +42,7 @@ pub struct AppState {
     pub onboarding_step: Option<u32>,
     pub mcp_servers: HashMap<String, Vec<McpServerEntry>>,
     pub media_devices: MediaDeviceState,
+    pub slack: SlackConnectionState,
 
     pub config: crate::config::AppConfig,
 }
@@ -67,6 +71,8 @@ impl Default for AppState {
             voice: VoiceState::default(),
             channels: HashMap::new(),
             scheduler: SchedulerState::default(),
+            job_history: Vec::new(),
+            automation_rules: Vec::new(),
             connectors: HashMap::new(),
             server_link: ServerConnectionState::default(),
             preferences: LearnedPreferences::default(),
@@ -74,6 +80,7 @@ impl Default for AppState {
             onboarding_step: None,
             mcp_servers: HashMap::new(),
             media_devices: MediaDeviceState::default(),
+            slack: SlackConnectionState::default(),
             config: crate::config::AppConfig::default(),
         }
     }
@@ -90,6 +97,8 @@ pub enum ViewMode {
     Onboarding,
     Canvas,
     Schedules,
+    Jobs,
+    Automations,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -585,6 +594,31 @@ pub enum BackoffStrategy {
     Exponential,
 }
 
+/// A top-level record of a task that was run in the app (scheduled or manual).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobHistoryEntry {
+    pub run_id: String,
+    pub job_name: String,
+    pub job_id: Option<JobId>,
+    pub trigger: JobTrigger,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<u64>,
+    pub status: JobRunStatus,
+    pub error: Option<String>,
+    pub output_summary: Option<String>,
+    pub backend_id: Option<String>,
+    pub prompt_preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JobTrigger {
+    Scheduled,
+    Manual,
+    Channel,
+    Automation,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobRun {
     pub run_id: String,
@@ -602,6 +636,81 @@ pub enum JobRunStatus {
     Success,
     Failure,
     Cancelled,
+}
+
+// ---------------------------------------------------------------------------
+// Automation Rules
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutomationRule {
+    pub rule_id: RuleId,
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub trigger: TriggerCondition,
+    pub action: AutomationAction,
+    pub created_at: DateTime<Utc>,
+    pub last_triggered: Option<DateTime<Utc>>,
+    pub trigger_count: u64,
+    pub history: Vec<AutomationRunEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TriggerCondition {
+    /// Fires when a message matching the filter arrives on a Slack channel.
+    SlackMessage {
+        channel_name: String,
+        keyword_filter: Option<String>,
+    },
+    /// Fires when an HTTP request hits a local webhook endpoint.
+    Webhook {
+        path: String,
+        secret: Option<String>,
+    },
+    /// Fires when a message arrives on any connected channel platform.
+    ChannelMessage {
+        platform_id: String,
+        channel_filter: Option<String>,
+        keyword_filter: Option<String>,
+    },
+    /// Fires on a cron/interval schedule (reuses existing scheduler infra).
+    Schedule {
+        definition: ScheduleDefinition,
+    },
+    /// Only fires when the user clicks "Run" manually.
+    Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AutomationAction {
+    /// Run an AI prompt (optionally with the trigger event context injected).
+    RunPrompt {
+        prompt: String,
+        include_event_context: bool,
+        backend_override: Option<String>,
+        model_override: Option<String>,
+    },
+    /// Trigger an existing scheduled job.
+    RunJob {
+        job_id: JobId,
+    },
+    /// Send a notification within the app.
+    Notify {
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutomationRunEntry {
+    pub run_id: String,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<u64>,
+    pub status: JobRunStatus,
+    pub trigger_event: Option<String>,
+    pub error: Option<String>,
+    pub output_summary: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -739,6 +848,35 @@ pub struct CameraDevice {
     pub device_id: String,
     pub display_name: String,
     pub is_available: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Slack
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SlackConnectionState {
+    pub status: SlackStatus,
+    pub workspace_name: Option<String>,
+    pub channels: Vec<SlackChannelInfo>,
+    pub monitored_channels: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlackStatus {
+    #[default]
+    Disconnected,
+    Checking,
+    Connected,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlackChannelInfo {
+    pub id: String,
+    pub name: String,
+    pub is_private: bool,
 }
 
 // ---------------------------------------------------------------------------

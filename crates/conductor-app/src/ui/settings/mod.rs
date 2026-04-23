@@ -41,7 +41,7 @@ impl SettingsView {
             about: about::AboutView::default(),
             general: general::GeneralView::new(shared.clone(), tx.clone()),
             backends: backends::BackendsView::new(shared.clone(), tx.clone()),
-            channels: channels::ChannelsView::new(shared.clone()),
+            channels: channels::ChannelsView::new(shared.clone(), tx.clone()),
             sessions: sessions::SessionsView::new(shared.clone(), tx.clone()),
             plugins: plugins::PluginsView::default(),
             skills: skills::SkillsView::default(),
