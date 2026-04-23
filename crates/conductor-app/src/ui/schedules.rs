@@ -6,16 +6,20 @@ use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
 
-/// Persistent UI state for the schedules tab.
-pub struct SchedulesTabState {
-    pub show_add_form: bool,
-    pub form: JobForm,
-    pub expanded_history: Option<String>,
+/// Persistent UI state for the schedules view.
+pub struct SchedulesView {
+    shared: SharedState,
+    tx: mpsc::UnboundedSender<Action>,
+    show_add_form: bool,
+    form: JobForm,
+    expanded_history: Option<String>,
 }
 
-impl Default for SchedulesTabState {
-    fn default() -> Self {
+impl SchedulesView {
+    pub fn new(shared: SharedState, tx: mpsc::UnboundedSender<Action>) -> Self {
         Self {
+            shared,
+            tx,
             show_add_form: false,
             form: JobForm::default(),
             expanded_history: None,
@@ -35,74 +39,72 @@ pub struct JobForm {
     pub webhook_url: String,
 }
 
-pub fn show(
-    ui: &mut egui::Ui,
-    shared: &SharedState,
-    tx: &mpsc::UnboundedSender<Action>,
-    tab_state: &mut SchedulesTabState,
-) {
-    let p = ui.palette();
+impl View for SchedulesView {
+    fn body(&mut self, ui: &mut egui::Ui) {
+        let p = ui.palette();
 
-    let state = shared.read();
-    let jobs = state.scheduler.jobs.clone();
-    drop(state);
+        let state = self.shared.read();
+        let jobs = state.scheduler.jobs.clone();
+        drop(state);
 
-    // Header row.
-    egui_swift::hstack!(ui, {
-        Label::heading("Scheduled Tasks").show(ui);
-        Spacer::trailing(ui, |ui| {
-            if Button::new("+ Add Job")
-                .style(ButtonStyle::BorderedProminent)
-                .small(true)
-                .show(ui)
-                .clicked()
-            {
-                tab_state.show_add_form = !tab_state.show_add_form;
+        ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
+            // Header row.
+            egui_swift::hstack!(ui, {
+                Label::heading("Scheduled Tasks").show(ui);
+                Spacer::trailing(ui, |ui| {
+                    if Button::new("+ Add Job")
+                        .style(ButtonStyle::BorderedProminent)
+                        .small(true)
+                        .show(ui)
+                        .clicked()
+                    {
+                        self.show_add_form = !self.show_add_form;
+                    }
+                });
+            });
+
+            egui_swift::spacer!(ui, 4.0);
+            Label::new(&format!(
+                "{} job{}",
+                jobs.len(),
+                if jobs.len() == 1 { "" } else { "s" }
+            ))
+            .font(Font::Subheadline)
+            .secondary()
+            .show(ui);
+            egui_swift::spacer!(ui, 8.0);
+
+            // -- Add Job form --
+            if self.show_add_form {
+                show_add_form(ui, &self.tx, &mut self.form, &mut self.show_add_form, &p);
+                egui_swift::spacer!(ui, 8.0);
+                Divider::new().show(ui);
+                egui_swift::spacer!(ui, 8.0);
+            }
+
+            // -- Job list --
+            if jobs.is_empty() && !self.show_add_form {
+                EmptyState::new("No scheduled tasks yet")
+                    .icon("\u{1f4c5}")
+                    .subtitle("Create a job to run AI prompts on a schedule.")
+                    .show(ui);
+                return;
+            }
+
+            for job in &jobs {
+                show_job_card(ui, job, &self.tx, &mut self.expanded_history, &p);
             }
         });
-    });
-
-    egui_swift::spacer!(ui, 4.0);
-    Label::new(&format!(
-        "{} job{}",
-        jobs.len(),
-        if jobs.len() == 1 { "" } else { "s" }
-    ))
-    .font(Font::Subheadline)
-    .secondary()
-    .show(ui);
-    egui_swift::spacer!(ui, 8.0);
-
-    // -- Add Job form --
-    if tab_state.show_add_form {
-        show_add_form(ui, tx, tab_state, &p);
-        egui_swift::spacer!(ui, 8.0);
-        Divider::new().show(ui);
-        egui_swift::spacer!(ui, 8.0);
-    }
-
-    // -- Job list --
-    if jobs.is_empty() && !tab_state.show_add_form {
-        EmptyState::new("No scheduled tasks yet")
-            .icon("\u{1f4c5}")
-            .subtitle("Create a job to run AI prompts on a schedule.")
-            .show(ui);
-        return;
-    }
-
-    for job in &jobs {
-        show_job_card(ui, job, tx, tab_state, &p);
     }
 }
 
 fn show_add_form(
     ui: &mut egui::Ui,
     tx: &mpsc::UnboundedSender<Action>,
-    tab_state: &mut SchedulesTabState,
+    form: &mut JobForm,
+    show_add_form: &mut bool,
     _p: &Palette,
 ) {
-    let form = &mut tab_state.form;
-
     Card::new().show(ui, |ui| {
         Label::new("New Scheduled Job")
             .font(Font::Headline)
@@ -197,7 +199,7 @@ fn show_add_form(
                 .show(ui)
                 .clicked()
             {
-                tab_state.show_add_form = false;
+                *show_add_form = false;
             }
             if Button::new("Create Job")
                 .style(ButtonStyle::BorderedProminent)
@@ -239,7 +241,7 @@ fn show_add_form(
                 let _ = tx.send(Action::CreateJob { definition: job });
 
                 *form = JobForm::default();
-                tab_state.show_add_form = false;
+                *show_add_form = false;
             }
         });
     });
@@ -249,7 +251,7 @@ fn show_job_card(
     ui: &mut egui::Ui,
     job: &ScheduledJob,
     tx: &mpsc::UnboundedSender<Action>,
-    tab_state: &mut SchedulesTabState,
+    expanded_history: &mut Option<String>,
     p: &Palette,
 ) {
     let status_color = if job.enabled {
@@ -329,7 +331,7 @@ fn show_job_card(
         // Expandable execution history.
         if !job.history.is_empty() {
             let mut expanded =
-                tab_state.expanded_history.as_deref() == Some(&job.job_id);
+                expanded_history.as_deref() == Some(&job.job_id);
             DisclosureGroup::new("Run History", &mut expanded).show(ui, |ui| {
                 for run in job.history.iter().rev().take(10) {
                     let (status_icon, run_color) = match run.status {
@@ -340,32 +342,26 @@ fn show_job_card(
                     };
 
                     egui_swift::hstack!(ui, {
-                        ui.label(
-                            egui::RichText::new(status_icon)
-                                .color(run_color)
-                                .size(12.0),
-                        );
-                        ui.label(
-                            egui::RichText::new(
-                                run.started_at.format("%m-%d %H:%M").to_string(),
-                            )
-                            .size(11.0)
-                            .monospace()
-                            .color(p.text_secondary),
-                        );
+                        Label::new(status_icon)
+                            .font(Font::Footnote)
+                            .color(run_color)
+                            .show(ui);
+                        Label::new(&run.started_at.format("%m-%d %H:%M").to_string())
+                            .font(Font::Footnote)
+                            .monospace(true)
+                            .color(p.text_secondary)
+                            .show(ui);
                         if let Some(ms) = run.duration_ms {
-                            ui.label(
-                                egui::RichText::new(format!("{:.1}s", ms as f64 / 1000.0))
-                                    .size(11.0)
-                                    .color(p.text_muted),
-                            );
+                            Label::new(&format!("{:.1}s", ms as f64 / 1000.0))
+                                .font(Font::Footnote)
+                                .color(p.text_muted)
+                                .show(ui);
                         }
                         if let Some(ref err) = run.error {
-                            ui.label(
-                                egui::RichText::new(err)
-                                    .size(11.0)
-                                    .color(p.status_red),
-                            );
+                            Label::new(err)
+                                .font(Font::Footnote)
+                                .color(p.status_red)
+                                .show(ui);
                         }
                         if let Some(ref summary) = run.output_summary {
                             let short = if summary.len() > 50 {
@@ -373,11 +369,10 @@ fn show_job_card(
                             } else {
                                 summary.clone()
                             };
-                            ui.label(
-                                egui::RichText::new(short)
-                                    .size(11.0)
-                                    .color(p.text_muted),
-                            );
+                            Label::new(&short)
+                                .font(Font::Footnote)
+                                .color(p.text_muted)
+                                .show(ui);
                         }
                     });
                 }
@@ -385,9 +380,9 @@ fn show_job_card(
 
             // Sync the expanded state back.
             if expanded {
-                tab_state.expanded_history = Some(job.job_id.clone());
-            } else if tab_state.expanded_history.as_deref() == Some(&job.job_id) {
-                tab_state.expanded_history = None;
+                *expanded_history = Some(job.job_id.clone());
+            } else if expanded_history.as_deref() == Some(&job.job_id) {
+                *expanded_history = None;
             }
         }
     });

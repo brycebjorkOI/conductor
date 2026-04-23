@@ -1,47 +1,62 @@
 use conductor_core::state::*;
 use egui_swift::prelude::*;
 
-pub fn show(ui: &mut egui::Ui, session: &Session) {
-    let is_streaming = session
-        .streaming
-        .as_ref()
-        .map_or(false, |s| s.is_active);
+pub struct MessageListView {
+    pub session: Option<Session>,
+}
 
-    ScrollView::vertical()
-        .stick_to_bottom(is_streaming || !session.messages.is_empty())
-        .show(ui, |ui| {
-            ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
-                if session.messages.is_empty() {
-                    render_empty_state(ui);
-                    return;
-                }
+impl MessageListView {
+    pub fn new() -> Self {
+        Self { session: None }
+    }
+}
 
-                egui_swift::spacer!(ui, 24.0);
+impl View for MessageListView {
+    fn body(&mut self, ui: &mut egui::Ui) {
+        let Some(ref session) = self.session else {
+            return;
+        };
 
-                for msg in &session.messages {
-                    render_message(ui, msg);
-                    egui_swift::spacer!(ui, Layout::MESSAGE_SPACING);
-                }
+        let is_streaming = session
+            .streaming
+            .as_ref()
+            .map_or(false, |s| s.is_active);
 
-                if is_streaming {
-                    let p = ui.palette();
-                    let time = ui.input(|i| i.time);
-                    let visible = (time * 2.5) as u64 % 2 == 0;
-                    if visible {
-                        ui.label(
-                            egui::RichText::new("\u{2588}")
-                                .size(Layout::BODY_FONT_SIZE)
-                                .color(p.accent),
-                        );
-                    } else {
-                        egui_swift::spacer!(ui, Layout::BODY_FONT_SIZE + 4.0);
+        ScrollView::vertical()
+            .stick_to_bottom(is_streaming || !session.messages.is_empty())
+            .show(ui, |ui| {
+                ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
+                    if session.messages.is_empty() {
+                        render_empty_state(ui);
+                        return;
                     }
-                    ui.ctx().request_repaint();
-                }
 
-                egui_swift::spacer!(ui, 24.0);
+                    egui_swift::spacer!(ui, 24.0);
+
+                    for msg in &session.messages {
+                        render_message(ui, msg);
+                        egui_swift::spacer!(ui, Layout::MESSAGE_SPACING);
+                    }
+
+                    if is_streaming {
+                        let p = ui.palette();
+                        let time = ui.input(|i| i.time);
+                        let visible = (time * 2.5) as u64 % 2 == 0;
+                        if visible {
+                            Label::new("\u{2588}")
+                                .font(Font::Body)
+                                .color(p.accent)
+                                .show(ui);
+                        } else {
+                            egui_swift::spacer!(ui, Layout::BODY_FONT_SIZE + 4.0);
+                        }
+                        ui.ctx().request_repaint();
+                    }
+
+                    egui_swift::spacer!(ui, 24.0);
+                });
             });
-        });
+    }
 }
 
 fn render_empty_state(ui: &mut egui::Ui) {
@@ -113,8 +128,6 @@ fn render_user_message(ui: &mut egui::Ui, msg: &Message) {
 }
 
 fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
-    let _p = ui.palette();
-
     // -- Thinking section (shown above tool cards and response text) --
     if let Some(ref thinking) = msg.thinking_content {
         if !thinking.is_empty() {
@@ -122,9 +135,8 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
             egui_swift::spacer!(ui, 8.0);
         }
     } else if msg.status == MessageStatus::Streaming && msg.content.is_empty() && msg.tool_cards.is_empty() {
-        // Streaming but no content yet — show a subtle "thinking" indicator.
         egui_swift::hstack!(ui, {
-            ui.spinner();
+            ProgressView::spinner().show(ui);
             Label::new("Thinking...")
                 .font(Font::Subheadline)
                 .italic(true)
@@ -205,63 +217,58 @@ fn render_error_message(ui: &mut egui::Ui, msg: &Message) {
 
 fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, msg_id: &str, idx: usize) {
     let p = ui.palette();
-    let (status_icon, status_color) = match card.phase {
+    let (status_icon, _status_color) = match card.phase {
         ToolPhase::Started => (icons::CIRCLE_FILLED, p.status_yellow),
         ToolPhase::Completed => (icons::CHECKMARK, p.status_green),
         ToolPhase::Failed => (icons::XMARK, p.status_red),
     };
 
-    // Unique ID: message UUID + sequential index — guaranteed no collisions.
     let uid = format!("tc_{msg_id}_{idx}");
 
     Card::new()
         .padding(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
-            egui::CollapsingHeader::new(
-                egui::RichText::new(format!("{status_icon}  {}", card.tool_name))
-                    .size(Font::Subheadline.size())
-                    .monospace()
-                    .color(status_color),
-            )
-            .id_salt(&uid)
-            .default_open(false)
-            .show(ui, |ui| {
-                for (key, value) in &card.arguments {
-                    egui_swift::hstack!(ui, {
-                        Label::new(&format!("{key}:"))
+            let header = format!("{status_icon}  {}", card.tool_name);
+            let mut open = false;
+            DisclosureGroup::new(&header, &mut open)
+                .icon(status_icon)
+                .show(ui, |ui| {
+                    let _ = &uid; // keep uid alive for identity
+                    for (key, value) in &card.arguments {
+                        egui_swift::hstack!(ui, {
+                            Label::new(&format!("{key}:"))
+                                .font(Font::Caption)
+                                .monospace(true)
+                                .secondary()
+                                .show(ui);
+                            let val_str = match value {
+                                serde_json::Value::String(s) => s.clone(),
+                                other => other.to_string(),
+                            };
+                            Label::new(&val_str)
+                                .font(Font::Caption)
+                                .monospace(true)
+                                .show(ui);
+                        });
+                    }
+                    if let Some(ref result) = card.result {
+                        egui_swift::spacer!(ui, 4.0);
+                        Divider::new().show(ui);
+                        egui_swift::spacer!(ui, 4.0);
+                        Label::new(result)
                             .font(Font::Caption)
                             .monospace(true)
                             .secondary()
                             .show(ui);
-                        let val_str = match value {
-                            serde_json::Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        };
-                        Label::new(&val_str)
-                            .font(Font::Caption)
-                            .monospace(true)
-                            .show(ui);
-                    });
-                }
-                if let Some(ref result) = card.result {
-                    egui_swift::spacer!(ui, 4.0);
-                    Divider::new().show(ui);
-                    egui_swift::spacer!(ui, 4.0);
-                    Label::new(result)
-                        .font(Font::Caption)
-                        .monospace(true)
-                        .secondary()
-                        .show(ui);
-                }
-            });
+                    }
+                });
         });
 }
 
-/// Render the thinking/reasoning section like Claude's "Thinking about..." UI.
+/// Render the thinking/reasoning section.
 fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming: bool) {
     let p = ui.palette();
 
-    // Extract a summary from the first line/sentence for the collapsible header.
     let summary = {
         let first_line = thinking.lines().next().unwrap_or("Thinking...");
         let trimmed = first_line.trim();
@@ -274,59 +281,40 @@ fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming
         }
     };
 
-    // Header: "Thinking about ..." with expand chevron.
-    let header_text = if is_streaming {
-        format!("\u{1f4ad} {summary}")  // thought balloon emoji while active
-    } else {
-        format!("\u{1f4ad} {summary}")
-    };
+    let header_text = format!("\u{1f4ad} {summary}");
+    let mut open = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new(&header_text)
-            .size(Font::Subheadline.size())
-            .italics()
-            .color(p.text_secondary),
-    )
-    .id_salt(format!("thinking_{msg_id}"))
-    .default_open(false)
-    .show(ui, |ui| {
-        // Render thinking steps with indicators.
+    DisclosureGroup::new(&header_text, &mut open).show(ui, |ui| {
+        let _ = msg_id; // keep alive for identity
         let lines: Vec<&str> = thinking.lines().filter(|l| !l.trim().is_empty()).collect();
 
         for (i, line) in lines.iter().enumerate() {
             let is_last = i == lines.len() - 1;
             egui_swift::hstack!(ui, {
-                // Step indicator.
                 if is_last && !is_streaming {
-                    // Final step: checkmark
-                    ui.label(
-                        egui::RichText::new(icons::CHECKMARK)
-                            .size(Font::Caption.size())
-                            .color(p.status_green),
-                    );
+                    Label::new(icons::CHECKMARK)
+                        .font(Font::Caption)
+                        .color(p.status_green)
+                        .show(ui);
                 } else if is_last && is_streaming {
-                    // Currently processing: spinner
-                    ui.spinner();
+                    ProgressView::spinner().show(ui);
                 } else {
-                    // Completed step: circle
-                    ui.label(
-                        egui::RichText::new(icons::CIRCLE_FILLED)
-                            .size(8.0)
-                            .color(p.text_muted),
-                    );
+                    Label::new(icons::CIRCLE_FILLED)
+                        .font(Font::Footnote)
+                        .color(p.text_muted)
+                        .show(ui);
                 }
 
-                ui.label(
-                    egui::RichText::new(*line)
-                        .size(Font::Subheadline.size())
-                        .color(p.text_secondary),
-                );
+                Label::new(*line)
+                    .font(Font::Subheadline)
+                    .color(p.text_secondary)
+                    .show(ui);
             });
 
-            // Connector line between steps (except after the last one).
+            // Connector line between steps.
             if !is_last {
                 egui_swift::hstack!(ui, {
-                    egui_swift::spacer!(ui, 7.0); // align with the icon center
+                    egui_swift::spacer!(ui, 7.0);
                     let (rect, _) = ui.allocate_exact_size(
                         egui::vec2(1.0, 12.0),
                         egui::Sense::hover(),

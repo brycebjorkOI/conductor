@@ -81,6 +81,7 @@ pub enum Action {
     },
     CloseSettings,
     ToggleNotifications,
+    ToggleSchedules,
     DismissNotification {
         id: String,
     },

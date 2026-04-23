@@ -6,7 +6,6 @@ mod general;
 mod mcp;
 mod permissions;
 mod plugins;
-pub mod schedules;
 mod sessions;
 mod skills;
 
@@ -22,15 +21,35 @@ use crate::bridge::SharedState;
 pub struct SettingsView {
     shared: SharedState,
     tx: mpsc::UnboundedSender<Action>,
-    pub schedules_state: schedules::SchedulesTabState,
+
+    // Tab views.
+    about: about::AboutView,
+    general: general::GeneralView,
+    backends: backends::BackendsView,
+    channels: channels::ChannelsView,
+    sessions: sessions::SessionsView,
+    plugins: plugins::PluginsView,
+    skills: skills::SkillsView,
+    mcp: mcp::McpView,
+    permissions: permissions::PermissionsView,
+    debug: debug::DebugView,
 }
 
 impl SettingsView {
     pub fn new(shared: SharedState, tx: mpsc::UnboundedSender<Action>) -> Self {
         Self {
+            about: about::AboutView::default(),
+            general: general::GeneralView::new(shared.clone(), tx.clone()),
+            backends: backends::BackendsView::new(shared.clone(), tx.clone()),
+            channels: channels::ChannelsView::new(shared.clone()),
+            sessions: sessions::SessionsView::new(shared.clone(), tx.clone()),
+            plugins: plugins::PluginsView::default(),
+            skills: skills::SkillsView::default(),
+            mcp: mcp::McpView::new(shared.clone()),
+            permissions: permissions::PermissionsView::new(shared.clone(), tx.clone()),
+            debug: debug::DebugView::default(),
             shared,
             tx,
-            schedules_state: schedules::SchedulesTabState::default(),
         }
     }
 
@@ -52,7 +71,6 @@ impl SettingsView {
                         (SettingsTab::General, "General", "gear"),
                         (SettingsTab::Backends, "Backends", "desktopcomputer"),
                         (SettingsTab::Channels, "Channels", "bubble.left"),
-                        (SettingsTab::Schedules, "Schedules", "calendar"),
                         (SettingsTab::Sessions, "Sessions", "doc.text"),
                         (SettingsTab::Plugins, "Plugins", "puzzlepiece"),
                         (SettingsTab::Skills, "Skills", "books.vertical"),
@@ -89,30 +107,16 @@ impl SettingsView {
 
                 detail.show(|ui| {
                     match current_tab {
-                        SettingsTab::About => about::show(ui),
-                        SettingsTab::General => general::show(ui, &self.shared, &self.tx),
-                        SettingsTab::Backends => {
-                            backends::show(ui, &self.shared, &self.tx)
-                        }
-                        SettingsTab::Channels => channels::show(ui, &self.shared),
-                        SettingsTab::Schedules => {
-                            schedules::show(
-                                ui,
-                                &self.shared,
-                                &self.tx,
-                                &mut self.schedules_state,
-                            )
-                        }
-                        SettingsTab::Sessions => {
-                            sessions::show(ui, &self.shared, &self.tx)
-                        }
-                        SettingsTab::Plugins => plugins::show(ui),
-                        SettingsTab::Skills => skills::show(ui),
-                        SettingsTab::McpServers => mcp::show(ui, &self.shared),
-                        SettingsTab::Permissions => {
-                            permissions::show(ui, &self.shared, &self.tx)
-                        }
-                        SettingsTab::Debug => debug::show(ui),
+                        SettingsTab::About => self.about.show(ui),
+                        SettingsTab::General => self.general.show(ui),
+                        SettingsTab::Backends => self.backends.show(ui),
+                        SettingsTab::Channels => self.channels.show(ui),
+                        SettingsTab::Sessions => self.sessions.show(ui),
+                        SettingsTab::Plugins => self.plugins.show(ui),
+                        SettingsTab::Skills => self.skills.show(ui),
+                        SettingsTab::McpServers => self.mcp.show(ui),
+                        SettingsTab::Permissions => self.permissions.show(ui),
+                        SettingsTab::Debug => self.debug.show(ui),
                     }
                 });
             });

@@ -2,7 +2,7 @@ use tokio::sync::mpsc;
 
 use conductor_core::events::Action;
 use conductor_core::session;
-use conductor_core::state::SettingsTab;
+use conductor_core::state::{SettingsTab, ViewMode};
 use egui_swift::prelude::*;
 
 use crate::bridge::SharedState;
@@ -63,12 +63,16 @@ impl View for SidebarView {
 
         egui_swift::spacer!(ui, 8.0);
 
+        let current_view = self.shared.read().current_view;
+
         if NavRow::new("Chats")
             .icon(icons::SPEECH_BALLOON)
-            .active(true)
+            .active(current_view == ViewMode::Chat)
             .show(ui)
             .clicked()
-        {}
+        {
+            self.shared.mutate(|s| s.current_view = ViewMode::Chat);
+        }
         if NavRow::new("Projects")
             .icon(icons::FOLDER)
             .show(ui)
@@ -76,12 +80,11 @@ impl View for SidebarView {
         {}
         if NavRow::new("Schedules")
             .icon(icons::CALENDAR)
+            .active(current_view == ViewMode::Schedules)
             .show(ui)
             .clicked()
         {
-            let _ = self.tx.send(Action::OpenSettings {
-                tab: Some(SettingsTab::Schedules),
-            });
+            let _ = self.tx.send(Action::ToggleSchedules);
         }
         {
             let unread = {

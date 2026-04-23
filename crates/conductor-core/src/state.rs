@@ -89,6 +89,7 @@ pub enum ViewMode {
     Settings,
     Onboarding,
     Canvas,
+    Schedules,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,7 +98,6 @@ pub enum SettingsTab {
     General,
     Backends,
     Channels,
-    Schedules,
     Sessions,
     Plugins,
     Skills,

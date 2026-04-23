@@ -10,6 +10,8 @@ pub struct InputBarView {
     tx: mpsc::UnboundedSender<Action>,
     pub input_text: String,
     pub show_autocomplete: bool,
+    pub is_streaming: bool,
+    pub active_session_id: SessionId,
 }
 
 impl InputBarView {
@@ -18,17 +20,14 @@ impl InputBarView {
             tx,
             input_text: String::new(),
             show_autocomplete: false,
+            is_streaming: false,
+            active_session_id: String::new(),
         }
     }
+}
 
-    /// Render the input bar for a specific session. Call this instead of `show()`
-    /// since we need runtime context (streaming state, active session).
-    pub fn show_for_session(
-        &mut self,
-        ui: &mut egui::Ui,
-        is_streaming: bool,
-        active_session_id: &SessionId,
-    ) {
+impl View for InputBarView {
+    fn body(&mut self, ui: &mut egui::Ui) {
         // Autocomplete popup.
         if self.show_autocomplete && self.input_text.starts_with('/') {
             let prefix = &self.input_text[1..];
@@ -66,7 +65,7 @@ impl InputBarView {
 
         let resp = ChatInput::new(&mut self.input_text)
             .placeholder("Type / for commands")
-            .streaming(is_streaming)
+            .streaming(self.is_streaming)
             .max_width(Layout::MAX_CONTENT_WIDTH)
             .show(ui);
 
@@ -79,7 +78,7 @@ impl InputBarView {
             let text = text.trim_end_matches('\n').to_string();
             if !text.is_empty() {
                 let _ = self.tx.send(Action::SendMessage {
-                    session_id: active_session_id.clone(),
+                    session_id: self.active_session_id.clone(),
                     text,
                     attachments: Vec::new(),
                 });
@@ -88,17 +87,10 @@ impl InputBarView {
 
         if resp.stopped {
             let _ = self.tx.send(Action::AbortGeneration {
-                session_id: active_session_id.clone(),
+                session_id: self.active_session_id.clone(),
             });
         }
 
         egui_swift::spacer!(ui, 8.0);
-    }
-}
-
-impl View for InputBarView {
-    fn body(&mut self, _ui: &mut egui::Ui) {
-        // Use show_for_session() instead — this needs runtime context.
-        // View trait body is a no-op; we keep the trait impl for type consistency.
     }
 }

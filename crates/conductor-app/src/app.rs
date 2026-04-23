@@ -14,9 +14,11 @@ pub struct ConductorApp {
     // Views (each owns its own state + action sender).
     sidebar: ui::sidebar::SidebarView,
     header: ui::chat::header::HeaderView,
+    message_list: ui::chat::message_list::MessageListView,
     input_bar: ui::chat::input_bar::InputBarView,
     settings: ui::settings::SettingsView,
     notifications: ui::notifications::NotificationsView,
+    schedules: ui::schedules::SchedulesView,
 }
 
 impl ConductorApp {
@@ -45,10 +47,39 @@ impl ConductorApp {
             _runtime: runtime,
             sidebar: ui::sidebar::SidebarView::new(shared.clone(), tx.clone()),
             header: ui::chat::header::HeaderView::new(shared.clone(), tx.clone()),
+            message_list: ui::chat::message_list::MessageListView::new(),
             input_bar: ui::chat::input_bar::InputBarView::new(tx.clone()),
             settings: ui::settings::SettingsView::new(shared.clone(), tx.clone()),
-            notifications: ui::notifications::NotificationsView::new(shared.clone(), tx),
+            notifications: ui::notifications::NotificationsView::new(shared.clone(), tx.clone()),
+            schedules: ui::schedules::SchedulesView::new(shared.clone(), tx),
         }
+    }
+
+    /// Show sidebar + central panel with standard padding. Used by schedules, notifications, etc.
+    fn show_with_sidebar(
+        &mut self,
+        ctx: &egui::Context,
+        content: impl FnOnce(&mut Self, &mut egui::Ui),
+    ) {
+        let p = ctx.palette();
+
+        if self.header.sidebar_open {
+            SidebarPanel::new()
+                .width(Layout::SIDEBAR_WIDTH)
+                .show(ctx, |ui| {
+                    self.sidebar.show(ui);
+                });
+        }
+
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::NONE
+                    .fill(p.surface)
+                    .inner_margin(egui::Margin::symmetric(24, 24)),
+            )
+            .show(ctx, |ui| {
+                content(self, ui);
+            });
     }
 }
 
@@ -62,26 +93,19 @@ impl eframe::App for ConductorApp {
             return;
         }
 
+        // Schedules view.
+        if self.shared.read().current_view == conductor_core::state::ViewMode::Schedules {
+            self.show_with_sidebar(ctx, |app, ui| {
+                app.schedules.show(ui);
+            });
+            return;
+        }
+
         // Notifications view.
         if self.shared.read().notifications_open {
-            // Show sidebar + notifications panel.
-            if self.header.sidebar_open {
-                SidebarPanel::new()
-                    .width(Layout::SIDEBAR_WIDTH)
-                    .show(ctx, |ui| {
-                        self.sidebar.show(ui);
-                    });
-            }
-
-            egui::CentralPanel::default()
-                .frame(
-                    egui::Frame::NONE
-                        .fill(p.surface)
-                        .inner_margin(egui::Margin::symmetric(24, 24)),
-                )
-                .show(ctx, |ui| {
-                    self.notifications.show(ui);
-                });
+            self.show_with_sidebar(ctx, |app, ui| {
+                app.notifications.show(ui);
+            });
             return;
         }
 
@@ -125,6 +149,13 @@ impl eframe::App for ConductorApp {
         let session_clone = state.sessions.get(&state.active_session_id).cloned();
         drop(state);
 
+        // Update input bar fields so body() has what it needs.
+        self.input_bar.is_streaming = is_streaming;
+        self.input_bar.active_session_id = active_sid;
+
+        // Update message list session.
+        self.message_list.session = session_clone.clone();
+
         if has_messages {
             egui::TopBottomPanel::bottom("input_bar")
                 .frame(
@@ -133,16 +164,13 @@ impl eframe::App for ConductorApp {
                         .inner_margin(egui::Margin::ZERO),
                 )
                 .show(ctx, |ui| {
-                    self.input_bar
-                        .show_for_session(ui, is_streaming, &active_sid);
+                    self.input_bar.show(ui);
                 });
 
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
-                    if let Some(ref session) = session_clone {
-                        ui::chat::message_list::show(ui, session);
-                    }
+                    self.message_list.show(ui);
                 });
         } else {
             // --- Empty state ---
@@ -152,15 +180,12 @@ impl eframe::App for ConductorApp {
                     let available_height = ui.available_height();
                     let available_width = ui.available_width();
                     let top_space = (available_height * 0.18).max(40.0);
-                    // Responsive: use a minimum margin of 24px on each side,
-                    // and cap content at MAX_CONTENT_WIDTH.
                     let min_margin = 24.0;
                     let content_width = (available_width - min_margin * 2.0).min(Layout::MAX_CONTENT_WIDTH).max(200.0);
                     let side = (available_width - content_width) / 2.0;
 
                     ui.add_space(top_space);
 
-                    // Center greeting + input horizontally.
                     ui.horizontal(|ui| {
                         ui.add_space(side);
                         ui.vertical(|ui| {
@@ -175,8 +200,7 @@ impl eframe::App for ConductorApp {
 
                             egui_swift::spacer!(ui, 16.0);
 
-                            self.input_bar
-                                .show_for_session(ui, is_streaming, &active_sid);
+                            self.input_bar.show(ui);
                         });
                         ui.add_space(side);
                     });

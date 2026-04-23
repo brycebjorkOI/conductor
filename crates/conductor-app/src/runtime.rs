@@ -489,6 +489,8 @@ async fn dispatcher(
             Action::OpenSettings { tab } => {
                 shared.mutate(|s| {
                     s.settings_open = true;
+                    s.current_view = ViewMode::Chat;
+                    s.notifications_open = false;
                     if let Some(tab) = tab {
                         s.settings_tab = tab;
                     }
@@ -558,7 +560,20 @@ async fn dispatcher(
             Action::ToggleNotifications => {
                 shared.mutate(|s| {
                     s.notifications_open = !s.notifications_open;
-                    s.settings_open = false; // close settings if open
+                    s.settings_open = false;
+                    s.current_view = ViewMode::Chat;
+                });
+            }
+
+            Action::ToggleSchedules => {
+                shared.mutate(|s| {
+                    if s.current_view == ViewMode::Schedules {
+                        s.current_view = ViewMode::Chat;
+                    } else {
+                        s.current_view = ViewMode::Schedules;
+                    }
+                    s.settings_open = false;
+                    s.notifications_open = false;
                 });
             }
 

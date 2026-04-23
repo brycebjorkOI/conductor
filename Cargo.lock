@@ -626,8 +626,8 @@ dependencies = [
 [[package]]
 name = "egui-swift"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ionq/egui-swiftui.git?branch=feat%2Fswiftui-api-improvements#40e56d2bae455b9ae0a2be2744cb12a89f989b0e"
 dependencies = [
- "eframe",
  "egui",
 ]
 
