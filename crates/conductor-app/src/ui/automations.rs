@@ -49,15 +49,26 @@ pub struct RuleForm {
     pub schedule_type: u8, // 0=interval, 1=cron
     pub interval_minutes: u32,
     pub cron_expression: String,
-    // Action selection: 0=RunPrompt, 1=RunJob, 2=Notify
-    pub action_type: u8,
-    // RunPrompt fields.
+    // Steps.
+    pub steps: Vec<StepForm>,
+}
+
+/// Form state for a single step in the automation flow.
+#[derive(Default)]
+pub struct StepForm {
+    pub name: String,
+    // 0=RunPrompt, 1=RunJob, 2=Notify, 3=Filter, 4=Delay, 5=Transform
+    pub step_type: u8,
     pub prompt: String,
     pub include_event_context: bool,
-    // RunJob fields.
+    pub include_previous_output: bool,
     pub target_job_id: String,
-    // Notify fields.
     pub notify_message: String,
+    pub filter_type: u8, // 0=Contains, 1=NotContains, 2=IsEmpty, 3=IsNotEmpty
+    pub filter_text: String,
+    pub delay_seconds: u64,
+    pub transform_prompt: String,
+    pub collapsed: bool,
 }
 
 impl View for AutomationsView {
@@ -243,63 +254,171 @@ fn show_add_form(
 
         egui_swift::spacer!(ui, 12.0);
 
-        // -- Action --
-        FormSection::new().header("Then (Action)").show(ui, |ui| {
-            let action_types: Vec<(u8, &str)> = vec![
-                (0, "Run AI prompt"),
-                (1, "Trigger existing job"),
-                (2, "Send notification"),
-            ];
-            RadioGroup::new(&mut form.action_type, &action_types).show(ui);
+        // -- Steps --
+        FormSection::new().header("Steps").show(ui, |ui| {
+            if form.steps.is_empty() {
+                Label::new("No steps yet. Add a step to define what happens when the trigger fires.")
+                    .font(Font::Caption)
+                    .muted()
+                    .show(ui);
+            }
         });
 
-        egui_swift::spacer!(ui, 4.0);
+        let mut remove_idx: Option<usize> = None;
+        let mut swap: Option<(usize, usize)> = None;
+        let num_steps = form.steps.len();
+        for i in 0..num_steps {
+            let step_num = i + 1;
+            let header = if form.steps[i].name.is_empty() {
+                format!("Step {step_num}")
+            } else {
+                format!("Step {step_num}: {}", form.steps[i].name)
+            };
 
-        match form.action_type {
-            0 => {
-                TextField::new(&mut form.prompt)
-                    .label("Prompt")
-                    .placeholder("What should the AI do when triggered?")
-                    .multiline(3)
+            let step = &mut form.steps[i];
+            DisclosureGroup::new(&header, &mut step.collapsed).show(ui, |ui| {
+                TextField::new(&mut step.name)
+                    .label("Step name")
+                    .placeholder("e.g. Summarize message")
                     .show(ui);
                 egui_swift::spacer!(ui, 4.0);
-                Toggle::new(&mut form.include_event_context)
-                    .label("Include event context in prompt")
-                    .show(ui);
-                Label::new("When enabled, the trigger event details (e.g. Slack message text) will be prepended to the prompt")
-                    .font(Font::Caption)
-                    .muted()
-                    .show(ui);
-            }
-            1 => {
-                TextField::new(&mut form.target_job_id)
-                    .label("Job ID")
-                    .placeholder("ID of the scheduled job to trigger")
-                    .show(ui);
-                Label::new("Find job IDs in the Schedules tab")
-                    .font(Font::Caption)
-                    .muted()
-                    .show(ui);
-            }
-            2 => {
-                TextField::new(&mut form.notify_message)
-                    .label("Notification message")
-                    .placeholder("The notification text to display")
-                    .multiline(2)
-                    .show(ui);
-            }
-            _ => {}
+
+                let step_types: Vec<(u8, &str)> = vec![
+                    (0, "Run AI prompt"),
+                    (1, "Trigger job"),
+                    (2, "Send notification"),
+                    (3, "Filter"),
+                    (4, "Delay"),
+                    (5, "Transform"),
+                ];
+                RadioGroup::new(&mut step.step_type, &step_types).show(ui);
+                egui_swift::spacer!(ui, 4.0);
+
+                match step.step_type {
+                    0 => {
+                        TextField::new(&mut step.prompt)
+                            .label("Prompt")
+                            .placeholder("What should the AI do?")
+                            .multiline(3)
+                            .show(ui);
+                        egui_swift::spacer!(ui, 4.0);
+                        Toggle::new(&mut step.include_event_context)
+                            .label("Include trigger event context")
+                            .show(ui);
+                        Toggle::new(&mut step.include_previous_output)
+                            .label("Include previous step output")
+                            .show(ui);
+                    }
+                    1 => {
+                        TextField::new(&mut step.target_job_id)
+                            .label("Job ID")
+                            .placeholder("ID of the job to trigger")
+                            .show(ui);
+                    }
+                    2 => {
+                        TextField::new(&mut step.notify_message)
+                            .label("Message")
+                            .placeholder("Use {previous_output} to include prior step result")
+                            .multiline(2)
+                            .show(ui);
+                    }
+                    3 => {
+                        let filter_types: Vec<(u8, &str)> = vec![
+                            (0, "Contains"),
+                            (1, "Does not contain"),
+                            (2, "Is empty"),
+                            (3, "Is not empty"),
+                        ];
+                        RadioGroup::new(&mut step.filter_type, &filter_types).show(ui);
+                        if step.filter_type <= 1 {
+                            egui_swift::spacer!(ui, 4.0);
+                            TextField::new(&mut step.filter_text)
+                                .label("Text to match")
+                                .placeholder("keyword")
+                                .show(ui);
+                        }
+                        Label::new("Stops the pipeline if the condition is not met on the previous step's output")
+                            .font(Font::Caption)
+                            .muted()
+                            .show(ui);
+                    }
+                    4 => {
+                        egui_swift::hstack!(ui, {
+                            Label::new("Wait").font(Font::Callout).show(ui);
+                            ui.add(egui::DragValue::new(&mut step.delay_seconds).range(1..=3600));
+                            Label::new("seconds").font(Font::Callout).show(ui);
+                        });
+                    }
+                    5 => {
+                        TextField::new(&mut step.transform_prompt)
+                            .label("Transform instruction")
+                            .placeholder("e.g. Summarize this in 3 bullet points")
+                            .multiline(2)
+                            .show(ui);
+                        Label::new("The previous step's output will be passed as input to the AI")
+                            .font(Font::Caption)
+                            .muted()
+                            .show(ui);
+                    }
+                    _ => {}
+                }
+
+                egui_swift::spacer!(ui, 4.0);
+                egui_swift::hstack!(ui, {
+                    if i > 0 {
+                        if Button::new("\u{2191}") // ↑
+                            .style(ButtonStyle::Bordered)
+                            .small(true)
+                            .show(ui)
+                            .clicked()
+                        {
+                            swap = Some((i, i - 1));
+                        }
+                    }
+                    if i < num_steps - 1 {
+                        if Button::new("\u{2193}") // ↓
+                            .style(ButtonStyle::Bordered)
+                            .small(true)
+                            .show(ui)
+                            .clicked()
+                        {
+                            swap = Some((i, i + 1));
+                        }
+                    }
+                    if Button::new("Remove")
+                        .style(ButtonStyle::Destructive)
+                        .small(true)
+                        .show(ui)
+                        .clicked()
+                    {
+                        remove_idx = Some(i);
+                    }
+                });
+            });
+            egui_swift::spacer!(ui, 4.0);
+        }
+
+        // Apply deferred mutations.
+        if let Some(idx) = remove_idx {
+            form.steps.remove(idx);
+        }
+        if let Some((a, b)) = swap {
+            form.steps.swap(a, b);
+        }
+
+        if Button::new("+ Add Step")
+            .style(ButtonStyle::Bordered)
+            .small(true)
+            .show(ui)
+            .clicked()
+        {
+            form.steps.push(StepForm::default());
         }
 
         egui_swift::spacer!(ui, 12.0);
 
         // Buttons.
-        let can_create = !form.name.trim().is_empty() && match form.action_type {
-            0 => !form.prompt.trim().is_empty(),
-            1 => !form.target_job_id.trim().is_empty(),
-            2 => !form.notify_message.trim().is_empty(),
-            _ => false,
-        };
+        let can_create = !form.name.trim().is_empty() && !form.steps.is_empty();
 
         ButtonRow::show(ui, |ui| {
             if Button::new("Cancel")
@@ -315,64 +434,8 @@ fn show_add_form(
                 .show(ui)
                 .clicked()
             {
-                let trigger = match form.trigger_type {
-                    1 => TriggerCondition::SlackMessage {
-                        channel_name: form.slack_channel.clone(),
-                        keyword_filter: if form.slack_keyword.trim().is_empty() {
-                            None
-                        } else {
-                            Some(form.slack_keyword.clone())
-                        },
-                    },
-                    2 => TriggerCondition::Webhook {
-                        path: form.webhook_path.clone(),
-                        secret: if form.webhook_secret.trim().is_empty() {
-                            None
-                        } else {
-                            Some(form.webhook_secret.clone())
-                        },
-                    },
-                    3 => TriggerCondition::ChannelMessage {
-                        platform_id: form.channel_platform.clone(),
-                        channel_filter: if form.channel_filter.trim().is_empty() {
-                            None
-                        } else {
-                            Some(form.channel_filter.clone())
-                        },
-                        keyword_filter: if form.channel_keyword.trim().is_empty() {
-                            None
-                        } else {
-                            Some(form.channel_keyword.clone())
-                        },
-                    },
-                    4 => TriggerCondition::Schedule {
-                        definition: match form.schedule_type {
-                            0 => ScheduleDefinition::Interval {
-                                seconds: form.interval_minutes as u64 * 60,
-                            },
-                            _ => ScheduleDefinition::Cron {
-                                expression: form.cron_expression.clone(),
-                                timezone: "UTC".into(),
-                            },
-                        },
-                    },
-                    _ => TriggerCondition::Manual,
-                };
-
-                let action = match form.action_type {
-                    1 => AutomationAction::RunJob {
-                        job_id: form.target_job_id.clone(),
-                    },
-                    2 => AutomationAction::Notify {
-                        message: form.notify_message.clone(),
-                    },
-                    _ => AutomationAction::RunPrompt {
-                        prompt: form.prompt.clone(),
-                        include_event_context: form.include_event_context,
-                        backend_override: None,
-                        model_override: None,
-                    },
-                };
+                let trigger = build_trigger(form);
+                let steps = build_steps(&form.steps);
 
                 let rule = AutomationRule {
                     rule_id: uuid::Uuid::new_v4().to_string(),
@@ -380,7 +443,8 @@ fn show_add_form(
                     description: form.description.clone(),
                     enabled: true,
                     trigger,
-                    action,
+                    action: None,
+                    steps,
                     created_at: chrono::Utc::now(),
                     last_triggered: None,
                     trigger_count: 0,
@@ -426,19 +490,16 @@ fn show_rule_card(
             }
         });
 
-        // Trigger description.
+        // Flow visualization: trigger → steps.
         let trigger_desc = describe_trigger(&rule.trigger);
-        Label::new(&format!("When: {trigger_desc}"))
-            .font(Font::Subheadline)
-            .secondary()
-            .show(ui);
+        show_flow_node(ui, &format!("\u{26a1} {trigger_desc}"), p.accent, p);
 
-        // Action description.
-        let action_desc = describe_action(&rule.action);
-        Label::new(&format!("Then: {action_desc}"))
-            .font(Font::Subheadline)
-            .secondary()
-            .show(ui);
+        for step in &rule.steps {
+            show_flow_arrow(ui, p);
+            let (icon, color) = step_icon_color(&step.step_type, p);
+            let desc = format!("{icon} {}: {}", step.name, describe_step(&step.step_type));
+            show_flow_node(ui, &desc, color, p);
+        }
 
         // Stats row.
         if rule.trigger_count > 0 || rule.last_triggered.is_some() {
@@ -607,32 +668,188 @@ fn describe_trigger(trigger: &TriggerCondition) -> String {
     }
 }
 
-fn describe_action(action: &AutomationAction) -> String {
-    match action {
-        AutomationAction::RunPrompt { prompt, include_event_context, .. } => {
-            let preview = if prompt.len() > 60 {
-                format!("{}...", &prompt[..57])
+fn describe_step(step: &StepAction) -> String {
+    match step {
+        StepAction::RunPrompt { prompt, .. } => {
+            let preview = if prompt.len() > 50 {
+                format!("{}...", &prompt[..47])
             } else {
                 prompt.clone()
             };
-            if *include_event_context {
-                format!("Run prompt (with context): \"{preview}\"")
-            } else {
-                format!("Run prompt: \"{preview}\"")
-            }
+            format!("Run prompt: \"{preview}\"")
         }
-        AutomationAction::RunJob { job_id } => {
-            format!("Trigger job {job_id}")
-        }
-        AutomationAction::Notify { message } => {
-            let preview = if message.len() > 60 {
-                format!("{}...", &message[..57])
+        StepAction::RunJob { job_id } => format!("Trigger job {job_id}"),
+        StepAction::Notify { message } => {
+            let preview = if message.len() > 50 {
+                format!("{}...", &message[..47])
             } else {
                 message.clone()
             };
             format!("Notify: \"{preview}\"")
         }
+        StepAction::Filter { condition } => match condition {
+            FilterCondition::Contains { text } => format!("Filter: contains \"{text}\""),
+            FilterCondition::NotContains { text } => format!("Filter: not contains \"{text}\""),
+            FilterCondition::IsEmpty => "Filter: is empty".into(),
+            FilterCondition::IsNotEmpty => "Filter: is not empty".into(),
+        },
+        StepAction::Delay { seconds } => format!("Delay {seconds}s"),
+        StepAction::Transform { prompt } => {
+            let preview = if prompt.len() > 50 {
+                format!("{}...", &prompt[..47])
+            } else {
+                prompt.clone()
+            };
+            format!("Transform: \"{preview}\"")
+        }
     }
+}
+
+fn step_icon_color<'a>(step: &StepAction, p: &'a Palette) -> (&'static str, egui::Color32) {
+    match step {
+        StepAction::RunPrompt { .. } => ("\u{1f916}", p.accent),        // 🤖
+        StepAction::RunJob { .. } => ("\u{25b6}", p.text_secondary),    // ▶
+        StepAction::Notify { .. } => ("\u{1f514}", p.status_yellow),    // 🔔
+        StepAction::Filter { .. } => ("\u{1f50d}", p.status_red),       // 🔍
+        StepAction::Delay { .. } => ("\u{23f1}", p.text_muted),         // ⏱
+        StepAction::Transform { .. } => ("\u{2728}", p.status_green),   // ✨
+    }
+}
+
+fn show_flow_node(ui: &mut egui::Ui, text: &str, accent: egui::Color32, p: &Palette) {
+    egui::Frame::NONE
+        .fill(p.surface_raised)
+        .corner_radius(egui::CornerRadius::same(6))
+        .stroke(egui::Stroke::new(0.5, accent))
+        .inner_margin(egui::Margin::symmetric(8, 4))
+        .show(ui, |ui| {
+            Label::new(text).font(Font::Caption).show(ui);
+        });
+}
+
+fn show_flow_arrow(ui: &mut egui::Ui, p: &Palette) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 16.0), egui::Sense::hover());
+    let center_x = rect.left() + 20.0;
+    let top = rect.top() + 2.0;
+    let bot = rect.bottom() - 2.0;
+    // Vertical line.
+    ui.painter().line_segment(
+        [egui::pos2(center_x, top), egui::pos2(center_x, bot)],
+        egui::Stroke::new(1.0, p.border),
+    );
+    // Small triangle.
+    let tri_size = 3.0;
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(center_x, bot),
+            egui::pos2(center_x - tri_size, bot - tri_size * 1.5),
+            egui::pos2(center_x + tri_size, bot - tri_size * 1.5),
+        ],
+        p.border,
+        egui::Stroke::NONE,
+    ));
+}
+
+fn build_trigger(form: &RuleForm) -> TriggerCondition {
+    match form.trigger_type {
+        1 => TriggerCondition::SlackMessage {
+            channel_name: form.slack_channel.clone(),
+            keyword_filter: if form.slack_keyword.trim().is_empty() {
+                None
+            } else {
+                Some(form.slack_keyword.clone())
+            },
+        },
+        2 => TriggerCondition::Webhook {
+            path: form.webhook_path.clone(),
+            secret: if form.webhook_secret.trim().is_empty() {
+                None
+            } else {
+                Some(form.webhook_secret.clone())
+            },
+        },
+        3 => TriggerCondition::ChannelMessage {
+            platform_id: form.channel_platform.clone(),
+            channel_filter: if form.channel_filter.trim().is_empty() {
+                None
+            } else {
+                Some(form.channel_filter.clone())
+            },
+            keyword_filter: if form.channel_keyword.trim().is_empty() {
+                None
+            } else {
+                Some(form.channel_keyword.clone())
+            },
+        },
+        4 => TriggerCondition::Schedule {
+            definition: match form.schedule_type {
+                0 => ScheduleDefinition::Interval {
+                    seconds: form.interval_minutes as u64 * 60,
+                },
+                _ => ScheduleDefinition::Cron {
+                    expression: form.cron_expression.clone(),
+                    timezone: "UTC".into(),
+                },
+            },
+        },
+        _ => TriggerCondition::Manual,
+    }
+}
+
+fn build_steps(forms: &[StepForm]) -> Vec<AutomationStep> {
+    forms
+        .iter()
+        .enumerate()
+        .map(|(i, sf)| AutomationStep {
+            step_id: uuid::Uuid::new_v4().to_string(),
+            name: if sf.name.is_empty() {
+                format!("Step {}", i + 1)
+            } else {
+                sf.name.clone()
+            },
+            position: i as u32,
+            step_type: match sf.step_type {
+                0 => StepAction::RunPrompt {
+                    prompt: sf.prompt.clone(),
+                    include_event_context: sf.include_event_context,
+                    include_previous_output: sf.include_previous_output,
+                    backend_override: None,
+                    model_override: None,
+                },
+                1 => StepAction::RunJob {
+                    job_id: sf.target_job_id.clone(),
+                },
+                2 => StepAction::Notify {
+                    message: sf.notify_message.clone(),
+                },
+                3 => match sf.filter_type {
+                    0 => StepAction::Filter {
+                        condition: FilterCondition::Contains {
+                            text: sf.filter_text.clone(),
+                        },
+                    },
+                    1 => StepAction::Filter {
+                        condition: FilterCondition::NotContains {
+                            text: sf.filter_text.clone(),
+                        },
+                    },
+                    2 => StepAction::Filter {
+                        condition: FilterCondition::IsEmpty,
+                    },
+                    _ => StepAction::Filter {
+                        condition: FilterCondition::IsNotEmpty,
+                    },
+                },
+                4 => StepAction::Delay {
+                    seconds: sf.delay_seconds.max(1),
+                },
+                _ => StepAction::Transform {
+                    prompt: sf.transform_prompt.clone(),
+                },
+            },
+            enabled: true,
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -652,13 +869,8 @@ fn slack_channel_picker(
     let slack_connected = state.slack.status == SlackStatus::Connected;
     drop(state);
 
-    // Label.
-    ui.label(
-        egui::RichText::new("Slack channel")
-            .size(13.0)
-            .color(p.text_primary),
-    );
-    ui.add_space(4.0);
+    Label::new("Slack channel").font(Font::Callout).show(ui);
+    egui_swift::spacer!(ui, 4.0);
 
     if !slack_connected {
         Label::new("Slack not connected. Connect in Settings > Channels first.")
@@ -675,32 +887,18 @@ fn slack_channel_picker(
     // Update the stored channel ID based on match.
     form.slack_channel_id = exact_match.map(|c| c.id.clone());
 
-    // Show the text input.
-    let frame = egui::Frame::NONE
-        .fill(p.input_bg)
-        .corner_radius(egui::CornerRadius::same(6))
-        .stroke(egui::Stroke::new(
-            1.0,
-            if form.slack_channel_id.is_some() {
-                p.status_green
-            } else if query.is_empty() {
-                p.border
-            } else {
-                p.status_red
-            },
-        ))
-        .inner_margin(egui::Margin::symmetric(10, 6));
-
-    let mut resp = None;
-    frame.show(ui, |ui| {
-        resp = Some(ui.add(
-            egui::TextEdit::singleline(&mut form.slack_channel)
-                .hint_text(egui::RichText::new("# search channels...").color(p.text_placeholder))
-                .frame(false)
-                .text_color(p.text_primary),
-        ));
-    });
-    let resp = resp.unwrap();
+    // Show the text input with validation border color.
+    let border = if form.slack_channel_id.is_some() {
+        p.status_green
+    } else if query.is_empty() {
+        p.border
+    } else {
+        p.status_red
+    };
+    let resp = TextField::new(&mut form.slack_channel)
+        .placeholder("# search channels...")
+        .border_color(border)
+        .show(ui);
 
     // Validation feedback.
     if let Some(ref matched) = exact_match {
@@ -715,26 +913,32 @@ fn slack_channel_picker(
             .show(ui);
     }
 
-    // Show suggestions dropdown when the field has focus and there's text.
-    if resp.has_focus() && !query.is_empty() && form.slack_channel_id.is_none() {
-        let matches: Vec<&SlackChannelInfo> = slack_channels
+    // Compute matches for the dropdown and tab-complete.
+    let matches: Vec<&SlackChannelInfo> = if !query.is_empty() && form.slack_channel_id.is_none() {
+        slack_channels
             .iter()
             .filter(|c| c.name.to_lowercase().contains(&query))
             .take(8)
-            .collect();
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-        // Tab or Enter selects the top match.
-        if !matches.is_empty() {
-            let tab_pressed = ui.input(|i| i.key_pressed(egui::Key::Tab));
-            let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if tab_pressed || enter_pressed {
-                form.slack_channel = matches[0].name.clone();
-                form.slack_channel_id = Some(matches[0].id.clone());
-            }
-        }
+    // Tab-complete: if the field just lost focus due to Tab and we have matches,
+    // select the top match and reclaim focus.
+    let tab_pressed = resp.lost_focus()
+        && ui.input(|i| i.key_pressed(egui::Key::Tab))
+        && !matches.is_empty();
+    if tab_pressed {
+        form.slack_channel = matches[0].name.clone();
+        form.slack_channel_id = Some(matches[0].id.clone());
+        // Re-grab focus so the user stays in the field.
+        resp.request_focus();
+    }
 
-        if !matches.is_empty() && form.slack_channel_id.is_none() {
-            egui::Frame::NONE
+    // Show suggestions dropdown when the field has focus and there are matches.
+    if resp.has_focus() && !matches.is_empty() {
+        egui::Frame::NONE
                 .fill(p.surface_raised)
                 .corner_radius(egui::CornerRadius::same(6))
                 .stroke(egui::Stroke::new(0.5, p.border))
@@ -787,6 +991,5 @@ fn slack_channel_picker(
                         }
                     }
                 });
-        }
     }
 }

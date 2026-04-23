@@ -26,6 +26,8 @@ Three crates in `crates/`:
 
 Core has zero knowledge of egui. egui-swift has zero knowledge of Conductor. The app crate imports both.
 
+**Important:** egui-swift lives in a sibling repo at `../egui-swiftui`. When you encounter a bug or limitation in an egui-swift component (e.g. Card hover overlay, ScrollView not filling space), fix it at the source in `../egui-swiftui` rather than working around it in conductor-app. Do not add workarounds in the app layer for issues that belong in the framework.
+
 ## Architecture: Unidirectional Data Flow
 
 ```

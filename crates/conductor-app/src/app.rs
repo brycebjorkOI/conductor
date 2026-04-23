@@ -187,32 +187,20 @@ impl eframe::App for ConductorApp {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(p.surface))
                 .show(ctx, |ui| {
-                    let available_height = ui.available_height();
-                    let available_width = ui.available_width();
-                    let top_space = (available_height * 0.18).max(40.0);
-                    let min_margin = 24.0;
-                    let content_width = (available_width - min_margin * 2.0).min(Layout::MAX_CONTENT_WIDTH).max(200.0);
-                    let side = (available_width - content_width) / 2.0;
-
+                    let top_space = (ui.available_height() * 0.18).max(40.0);
                     ui.add_space(top_space);
 
-                    ui.horizontal(|ui| {
-                        ui.add_space(side);
-                        ui.vertical(|ui| {
-                            ui.set_max_width(content_width);
-
-                            ui.vertical_centered(|ui| {
-                                let greeting = time_greeting();
-                                Label::new(&format!("{}  {greeting}", icons::SPARKLE))
-                                    .font(Font::LargeTitle)
-                                    .show(ui);
-                            });
-
-                            egui_swift::spacer!(ui, 16.0);
-
-                            self.input_bar.show(ui);
+                    ui.centered_content(Layout::MAX_CONTENT_WIDTH, |ui| {
+                        ui.vertical_centered(|ui| {
+                            let greeting = time_greeting();
+                            Label::new(&format!("{}  {greeting}", icons::SPARKLE))
+                                .font(Font::LargeTitle)
+                                .show(ui);
                         });
-                        ui.add_space(side);
+
+                        egui_swift::spacer!(ui, 16.0);
+
+                        self.input_bar.show(ui);
                     });
                 });
         }

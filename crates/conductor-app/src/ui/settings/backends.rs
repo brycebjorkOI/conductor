@@ -105,26 +105,17 @@ impl View for BackendsView {
         egui_swift::spacer!(ui, 12.0);
 
         egui_swift::section!(ui, "Default Backend", {
-            let current = default_id.as_deref().unwrap_or("none");
-            egui::ComboBox::from_id_salt("default_backend")
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    for b in &registry {
-                        if b.discovery_state == DiscoveryState::Found {
-                            if ui
-                                .selectable_label(
-                                    Some(b.backend_id.as_str()) == default_id.as_deref(),
-                                    &b.display_name,
-                                )
-                                .clicked()
-                            {
-                                self.shared.mutate(|s| {
-                                    s.default_backend_id = Some(b.backend_id.clone());
-                                });
-                            }
-                        }
-                    }
+            let options: Vec<(String, &str)> = registry
+                .iter()
+                .filter(|b| b.discovery_state == DiscoveryState::Found)
+                .map(|b| (b.backend_id.clone(), b.display_name.as_str()))
+                .collect();
+            let mut selected = default_id.clone().unwrap_or_default();
+            if Picker::new("Default Backend", &mut selected, &options).show(ui).changed() {
+                self.shared.mutate(|s| {
+                    s.default_backend_id = Some(selected);
                 });
+            }
         });
 
         egui_swift::spacer!(ui, 8.0);

@@ -8,6 +8,7 @@ pub type SessionId = String;
 pub type MessageId = String;
 pub type JobId = String;
 pub type RuleId = String;
+pub type StepId = String;
 
 // ---------------------------------------------------------------------------
 // Top-level application state
@@ -96,7 +97,6 @@ pub enum ViewMode {
     Settings,
     Onboarding,
     Canvas,
-    Schedules,
     Jobs,
     Automations,
 }
@@ -649,7 +649,13 @@ pub struct AutomationRule {
     pub description: String,
     pub enabled: bool,
     pub trigger: TriggerCondition,
-    pub action: AutomationAction,
+    /// Legacy single-action field — kept for backward-compatible deserialization.
+    /// Migrated to `steps` on load; never written back.
+    #[serde(default, skip_serializing)]
+    pub action: Option<AutomationAction>,
+    /// Ordered list of steps to execute when the trigger fires.
+    #[serde(default)]
+    pub steps: Vec<AutomationStep>,
     pub created_at: DateTime<Utc>,
     pub last_triggered: Option<DateTime<Utc>>,
     pub trigger_count: u64,
@@ -682,12 +688,41 @@ pub enum TriggerCondition {
     Manual,
 }
 
+/// Legacy action type — kept only for deserializing old automations.json files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AutomationAction {
-    /// Run an AI prompt (optionally with the trigger event context injected).
     RunPrompt {
         prompt: String,
         include_event_context: bool,
+        backend_override: Option<String>,
+        model_override: Option<String>,
+    },
+    RunJob {
+        job_id: JobId,
+    },
+    Notify {
+        message: String,
+    },
+}
+
+// -- Multi-step automation types --
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutomationStep {
+    pub step_id: StepId,
+    pub name: String,
+    pub position: u32,
+    pub step_type: StepAction,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StepAction {
+    /// Run an AI prompt.
+    RunPrompt {
+        prompt: String,
+        include_event_context: bool,
+        include_previous_output: bool,
         backend_override: Option<String>,
         model_override: Option<String>,
     },
@@ -695,10 +730,30 @@ pub enum AutomationAction {
     RunJob {
         job_id: JobId,
     },
-    /// Send a notification within the app.
+    /// Send a notification. Use `{previous_output}` in the message to interpolate.
     Notify {
         message: String,
     },
+    /// Stop the pipeline if a condition on the previous step's output is not met.
+    Filter {
+        condition: FilterCondition,
+    },
+    /// Pause for a duration before continuing.
+    Delay {
+        seconds: u64,
+    },
+    /// Transform the previous output via an AI prompt.
+    Transform {
+        prompt: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FilterCondition {
+    Contains { text: String },
+    NotContains { text: String },
+    IsEmpty,
+    IsNotEmpty,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -711,6 +766,21 @@ pub struct AutomationRunEntry {
     pub trigger_event: Option<String>,
     pub error: Option<String>,
     pub output_summary: Option<String>,
+    #[serde(default)]
+    pub step_results: Vec<StepRunResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepRunResult {
+    pub step_id: StepId,
+    pub step_name: String,
+    pub status: JobRunStatus,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<u64>,
+    pub output: Option<String>,
+    pub error: Option<String>,
+    pub skipped: bool,
 }
 
 // ---------------------------------------------------------------------------

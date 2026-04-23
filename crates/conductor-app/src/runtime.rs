@@ -683,26 +683,6 @@ async fn dispatcher(
                 });
             }
 
-            Action::ToggleSchedules => {
-                shared.mutate(|s| {
-                    if s.current_view == ViewMode::Schedules {
-                        s.current_view = ViewMode::Chat;
-                    } else {
-                        s.current_view = ViewMode::Schedules;
-                    }
-                    s.settings_open = false;
-                    s.notifications_open = false;
-                });
-            }
-
-            Action::DismissNotification { id } => {
-                shared.mutate(|s| {
-                    if let Some(n) = s.notifications.iter_mut().find(|n| n.id == id) {
-                        n.dismissed = true;
-                    }
-                });
-            }
-
             Action::DismissAllNotifications => {
                 shared.mutate(|s| {
                     for n in &mut s.notifications {
@@ -1106,6 +1086,13 @@ async fn slack_refresh_channels(shared: SharedState) {
     }
 }
 
+/// Outcome of a single step execution.
+enum StepOutcome {
+    Success { output: Option<String> },
+    Filtered,
+    Failed { error: String },
+}
+
 async fn run_automation(
     shared: SharedState,
     tx: mpsc::UnboundedSender<Action>,
@@ -1122,19 +1109,20 @@ async fn run_automation(
         return;
     };
 
-    tracing::info!("running automation '{}'", rule.name);
+    tracing::info!("running automation '{}' ({} steps)", rule.name, rule.steps.len());
 
-    // Create a run entry.
     let run_id = uuid::Uuid::new_v4().to_string();
+    let run_start = chrono::Utc::now();
     let run = AutomationRunEntry {
         run_id: run_id.clone(),
-        started_at: chrono::Utc::now(),
+        started_at: run_start,
         completed_at: None,
         duration_ms: None,
         status: JobRunStatus::Running,
         trigger_event: event_context.clone(),
         error: None,
         output_summary: None,
+        step_results: Vec::new(),
     };
 
     shared.mutate(|s| {
@@ -1143,142 +1131,291 @@ async fn run_automation(
         }
     });
 
-    let start = std::time::Instant::now();
+    let overall_start = std::time::Instant::now();
+    let mut previous_output: Option<String> = event_context.clone();
+    let mut step_results: Vec<StepRunResult> = Vec::new();
+    let mut pipeline_halted = false;
+    let mut overall_error: Option<String> = None;
 
-    match &rule.action {
-        AutomationAction::RunPrompt {
-            prompt,
-            include_event_context,
-            backend_override: _,
-            model_override: _,
-        } => {
-            // Build the full prompt, optionally injecting event context.
-            let full_prompt = if *include_event_context {
-                if let Some(ref ctx) = event_context {
-                    format!("Event context:\n{ctx}\n\n---\n\n{prompt}")
-                } else {
-                    prompt.clone()
-                }
-            } else {
-                prompt.clone()
-            };
+    for step in &rule.steps {
+        if !step.enabled || pipeline_halted {
+            step_results.push(StepRunResult {
+                step_id: step.step_id.clone(),
+                step_name: step.name.clone(),
+                status: JobRunStatus::Cancelled,
+                started_at: chrono::Utc::now(),
+                completed_at: Some(chrono::Utc::now()),
+                duration_ms: Some(0),
+                output: None,
+                error: None,
+                skipped: true,
+            });
+            continue;
+        }
 
-            // Create a temporary job and execute it using existing infra.
-            let (registry, fallback, default_backend) = {
-                let state = shared.read();
-                (
-                    state.backend_registry.clone(),
-                    state.fallback_order.clone(),
-                    state.default_backend_id.clone().unwrap_or_else(|| "anthropic".into()),
-                )
-            };
+        let step_start = std::time::Instant::now();
+        let outcome = execute_step(
+            &step.step_type,
+            &previous_output,
+            &event_context,
+            &shared,
+            &tx,
+            &rule,
+            &run_id,
+        )
+        .await;
+        let elapsed = step_start.elapsed().as_millis() as u64;
 
-            let temp_job = ScheduledJob {
-                job_id: format!("auto-{run_id}"),
-                name: rule.name.clone(),
-                enabled: true,
-                schedule: ScheduleDefinition::OneTime { datetime: chrono::Utc::now() },
-                payload: JobPayload {
-                    prompt: full_prompt,
-                    execution_mode: ExecutionMode::Isolated,
-                    backend_override: None,
-                    model_override: None,
-                    thinking_level: None,
-                    timeout_seconds: None,
-                },
-                delivery: DeliveryConfig::Silent,
-                retry_policy: RetryPolicy::default(),
-                history: Vec::new(),
-                next_run: None,
-            };
-
-            let completed = conductor_core::scheduler::execute_job(
-                &temp_job,
-                &registry,
-                &fallback,
-                &default_backend,
-                None,
-            )
-            .await;
-
-            let elapsed = start.elapsed().as_millis() as u64;
-
-            // Update the run entry and also push to global job_history.
-            shared.mutate(|s| {
-                if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
-                    r.trigger_count += 1;
-                    r.last_triggered = Some(chrono::Utc::now());
-                    if let Some(entry) = r.history.iter_mut().find(|e| e.run_id == run_id) {
-                        entry.completed_at = Some(chrono::Utc::now());
-                        entry.duration_ms = Some(elapsed);
-                        entry.status = completed.status;
-                        entry.error = completed.error.clone();
-                        entry.output_summary = completed.output_summary.clone();
-                    }
-                }
-                // Also record in the global job history.
-                s.job_history.push(JobHistoryEntry {
-                    run_id: run_id.clone(),
-                    job_name: rule.name.clone(),
-                    job_id: Some(rule.rule_id.clone()),
-                    trigger: JobTrigger::Automation,
-                    started_at: run.started_at,
+        match outcome {
+            StepOutcome::Success { output } => {
+                tracing::debug!("step '{}' succeeded", step.name);
+                step_results.push(StepRunResult {
+                    step_id: step.step_id.clone(),
+                    step_name: step.name.clone(),
+                    status: JobRunStatus::Success,
+                    started_at: chrono::Utc::now(),
                     completed_at: Some(chrono::Utc::now()),
                     duration_ms: Some(elapsed),
-                    status: completed.status,
-                    error: completed.error,
-                    output_summary: completed.output_summary,
-                    backend_id: None,
-                    prompt_preview: Some(rule.name.clone()),
+                    output: output.clone(),
+                    error: None,
+                    skipped: false,
                 });
-            });
+                previous_output = output;
+            }
+            StepOutcome::Filtered => {
+                tracing::info!("step '{}' filtered — halting pipeline", step.name);
+                pipeline_halted = true;
+                step_results.push(StepRunResult {
+                    step_id: step.step_id.clone(),
+                    step_name: step.name.clone(),
+                    status: JobRunStatus::Cancelled,
+                    started_at: chrono::Utc::now(),
+                    completed_at: Some(chrono::Utc::now()),
+                    duration_ms: Some(elapsed),
+                    output: None,
+                    error: Some("Filter condition not met".into()),
+                    skipped: false,
+                });
+            }
+            StepOutcome::Failed { error } => {
+                tracing::warn!("step '{}' failed: {error}", step.name);
+                pipeline_halted = true;
+                overall_error = Some(format!("Step '{}': {error}", step.name));
+                step_results.push(StepRunResult {
+                    step_id: step.step_id.clone(),
+                    step_name: step.name.clone(),
+                    status: JobRunStatus::Failure,
+                    started_at: chrono::Utc::now(),
+                    completed_at: Some(chrono::Utc::now()),
+                    duration_ms: Some(elapsed),
+                    output: None,
+                    error: Some(error),
+                    skipped: false,
+                });
+            }
         }
+    }
 
-        AutomationAction::RunJob { job_id } => {
-            let _ = tx.send(Action::RunJobNow { job_id: job_id.clone() });
+    let overall_elapsed = overall_start.elapsed().as_millis() as u64;
+    let any_failure = step_results.iter().any(|r| r.status == JobRunStatus::Failure);
+    let overall_status = if any_failure {
+        JobRunStatus::Failure
+    } else {
+        JobRunStatus::Success
+    };
 
-            let elapsed = start.elapsed().as_millis() as u64;
-            shared.mutate(|s| {
-                if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
-                    r.trigger_count += 1;
-                    r.last_triggered = Some(chrono::Utc::now());
-                    if let Some(entry) = r.history.iter_mut().find(|e| e.run_id == run_id) {
-                        entry.completed_at = Some(chrono::Utc::now());
-                        entry.duration_ms = Some(elapsed);
-                        entry.status = JobRunStatus::Success;
-                        entry.output_summary = Some(format!("Triggered job {job_id}"));
-                    }
+    let last_output = previous_output.clone();
+
+    shared.mutate(|s| {
+        if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
+            r.trigger_count += 1;
+            r.last_triggered = Some(chrono::Utc::now());
+            if let Some(entry) = r.history.iter_mut().find(|e| e.run_id == run_id) {
+                entry.completed_at = Some(chrono::Utc::now());
+                entry.duration_ms = Some(overall_elapsed);
+                entry.status = overall_status;
+                entry.error = overall_error.clone();
+                entry.output_summary = last_output.clone();
+                entry.step_results = step_results.clone();
+            }
+        }
+        s.job_history.push(JobHistoryEntry {
+            run_id: run_id.clone(),
+            job_name: rule.name.clone(),
+            job_id: Some(rule.rule_id.clone()),
+            trigger: JobTrigger::Automation,
+            started_at: run_start,
+            completed_at: Some(chrono::Utc::now()),
+            duration_ms: Some(overall_elapsed),
+            status: overall_status,
+            error: overall_error,
+            output_summary: last_output,
+            backend_id: None,
+            prompt_preview: Some(rule.name.clone()),
+        });
+    });
+
+    persist_automations(&shared);
+    tracing::info!("automation '{}' completed ({overall_status:?})", rule.name);
+}
+
+async fn execute_step(
+    step_type: &StepAction,
+    previous_output: &Option<String>,
+    event_context: &Option<String>,
+    shared: &SharedState,
+    tx: &mpsc::UnboundedSender<Action>,
+    rule: &AutomationRule,
+    run_id: &str,
+) -> StepOutcome {
+    match step_type {
+        StepAction::RunPrompt {
+            prompt,
+            include_event_context,
+            include_previous_output,
+            ..
+        } => {
+            let mut full_prompt = prompt.clone();
+            if *include_previous_output {
+                if let Some(ref prev) = previous_output {
+                    full_prompt = format!("Previous step output:\n{prev}\n\n---\n\n{full_prompt}");
                 }
-            });
+            }
+            if *include_event_context {
+                if let Some(ref ctx) = event_context {
+                    full_prompt = format!("Event context:\n{ctx}\n\n---\n\n{full_prompt}");
+                }
+            }
+
+            run_prompt_step(shared, &rule.name, run_id, full_prompt).await
         }
 
-        AutomationAction::Notify { message } => {
+        StepAction::RunJob { job_id } => {
+            let _ = tx.send(Action::RunJobNow {
+                job_id: job_id.clone(),
+            });
+            StepOutcome::Success {
+                output: Some(format!("Triggered job {job_id}")),
+            }
+        }
+
+        StepAction::Notify { message } => {
+            let body = match previous_output {
+                Some(prev) => message.replace("{previous_output}", prev),
+                None => message.replace("{previous_output}", ""),
+            };
             shared.mutate(|s| {
                 s.notifications.push(Notification {
                     id: uuid::Uuid::new_v4().to_string(),
                     title: format!("Automation: {}", rule.name),
-                    body: message.clone(),
+                    body: body.clone(),
                     severity: NotificationSeverity::Info,
                     timestamp: chrono::Utc::now(),
                     dismissed: false,
                 });
-
-                if let Some(r) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
-                    r.trigger_count += 1;
-                    r.last_triggered = Some(chrono::Utc::now());
-                    if let Some(entry) = r.history.iter_mut().find(|e| e.run_id == run_id) {
-                        entry.completed_at = Some(chrono::Utc::now());
-                        entry.duration_ms = Some(start.elapsed().as_millis() as u64);
-                        entry.status = JobRunStatus::Success;
-                        entry.output_summary = Some("Notification sent".into());
-                    }
-                }
             });
+            StepOutcome::Success {
+                output: Some("Notification sent".into()),
+            }
+        }
+
+        StepAction::Filter { condition } => {
+            let text = previous_output.as_deref().unwrap_or("");
+            let passes = match condition {
+                FilterCondition::Contains { text: needle } => {
+                    text.to_lowercase().contains(&needle.to_lowercase())
+                }
+                FilterCondition::NotContains { text: needle } => {
+                    !text.to_lowercase().contains(&needle.to_lowercase())
+                }
+                FilterCondition::IsEmpty => text.is_empty(),
+                FilterCondition::IsNotEmpty => !text.is_empty(),
+            };
+            if passes {
+                StepOutcome::Success {
+                    output: previous_output.clone(),
+                }
+            } else {
+                StepOutcome::Filtered
+            }
+        }
+
+        StepAction::Delay { seconds } => {
+            tokio::time::sleep(std::time::Duration::from_secs(*seconds)).await;
+            StepOutcome::Success {
+                output: previous_output.clone(),
+            }
+        }
+
+        StepAction::Transform { prompt } => {
+            let full_prompt = match previous_output {
+                Some(ref prev) => format!("Input:\n{prev}\n\n---\n\nInstruction: {prompt}"),
+                None => prompt.clone(),
+            };
+            run_prompt_step(shared, &rule.name, run_id, full_prompt).await
         }
     }
+}
 
-    persist_automations(&shared);
-    tracing::info!("automation '{}' completed", rule.name);
+/// Execute a prompt via the scheduler's execute_job infrastructure.
+async fn run_prompt_step(
+    shared: &SharedState,
+    rule_name: &str,
+    run_id: &str,
+    prompt: String,
+) -> StepOutcome {
+    let (registry, fallback, default_backend) = {
+        let state = shared.read();
+        (
+            state.backend_registry.clone(),
+            state.fallback_order.clone(),
+            state
+                .default_backend_id
+                .clone()
+                .unwrap_or_else(|| "anthropic".into()),
+        )
+    };
+
+    let temp_job = ScheduledJob {
+        job_id: format!("auto-{run_id}"),
+        name: rule_name.to_string(),
+        enabled: true,
+        schedule: ScheduleDefinition::OneTime {
+            datetime: chrono::Utc::now(),
+        },
+        payload: JobPayload {
+            prompt,
+            execution_mode: ExecutionMode::Isolated,
+            backend_override: None,
+            model_override: None,
+            thinking_level: None,
+            timeout_seconds: None,
+        },
+        delivery: DeliveryConfig::Silent,
+        retry_policy: RetryPolicy::default(),
+        history: Vec::new(),
+        next_run: None,
+    };
+
+    let completed = conductor_core::scheduler::execute_job(
+        &temp_job,
+        &registry,
+        &fallback,
+        &default_backend,
+        None,
+    )
+    .await;
+
+    match completed.status {
+        JobRunStatus::Success => StepOutcome::Success {
+            output: completed.output_summary,
+        },
+        _ => StepOutcome::Failed {
+            error: completed
+                .error
+                .unwrap_or_else(|| "Unknown execution error".into()),
+        },
+    }
 }
 
 fn handle_session_command(shared: &SharedState, session_id: &str, cmd: SessionCommand) {
