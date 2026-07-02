@@ -64,6 +64,11 @@ pub enum Action {
         channel_id: String,
     },
 
+    // -- Google Calendar --
+    CalendarConnect,
+    CalendarDisconnect,
+    CalendarRefresh,
+
     // -- Scheduling --
     CreateJob {
         definition: ScheduledJob,
@@ -87,6 +92,9 @@ pub enum Action {
 
     // -- Automations --
     CreateAutomation {
+        rule: AutomationRule,
+    },
+    UpdateAutomation {
         rule: AutomationRule,
     },
     DeleteAutomation {

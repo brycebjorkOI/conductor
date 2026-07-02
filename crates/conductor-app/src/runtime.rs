@@ -46,6 +46,13 @@ impl RuntimeHandle {
             slack_connect(shared_slack, tx_slack).await;
         });
 
+        // Auto-connect to Google Calendar if gcloud is available.
+        let shared_cal = shared.clone();
+        let tx_cal = action_tx.clone();
+        runtime.spawn(async move {
+            calendar_connect(shared_cal, tx_cal).await;
+        });
+
         // Load persisted automation rules.
         {
             let saved_rules = conductor_core::automation::load_rules();
@@ -240,6 +247,7 @@ async fn dispatcher(
 ) {
     let mut cancel_map: CancelMap = HashMap::new();
     let mut slack_poll_handle: Option<tokio::task::JoinHandle<()>> = None;
+    let mut calendar_poll_handle: Option<tokio::task::JoinHandle<()>> = None;
     let backend_defs = all_known_backends();
 
     while let Some(action) = rx.recv().await {
@@ -583,6 +591,26 @@ async fn dispatcher(
                 });
                 persist_automations(&shared);
                 sync_slack_monitors(&shared, &mut slack_poll_handle, &_tx);
+                sync_calendar_monitors(&shared, &mut calendar_poll_handle, &_tx);
+            }
+
+            Action::UpdateAutomation { rule } => {
+                let rule_id = rule.rule_id.clone();
+                shared.mutate(|s| {
+                    if let Some(existing) = s.automation_rules.iter_mut().find(|r| r.rule_id == rule_id) {
+                        // Preserve history and stats from the existing rule.
+                        let history = std::mem::take(&mut existing.history);
+                        let trigger_count = existing.trigger_count;
+                        let last_triggered = existing.last_triggered;
+                        *existing = rule;
+                        existing.history = history;
+                        existing.trigger_count = trigger_count;
+                        existing.last_triggered = last_triggered;
+                    }
+                });
+                persist_automations(&shared);
+                sync_slack_monitors(&shared, &mut slack_poll_handle, &_tx);
+                sync_calendar_monitors(&shared, &mut calendar_poll_handle, &_tx);
             }
 
             Action::DeleteAutomation { rule_id } => {
@@ -591,6 +619,7 @@ async fn dispatcher(
                 });
                 persist_automations(&shared);
                 sync_slack_monitors(&shared, &mut slack_poll_handle, &_tx);
+                sync_calendar_monitors(&shared, &mut calendar_poll_handle, &_tx);
             }
 
             Action::ToggleAutomation { rule_id, enabled } => {
@@ -601,6 +630,7 @@ async fn dispatcher(
                 });
                 persist_automations(&shared);
                 sync_slack_monitors(&shared, &mut slack_poll_handle, &_tx);
+                sync_calendar_monitors(&shared, &mut calendar_poll_handle, &_tx);
             }
 
             Action::RunAutomation { rule_id, event_context } => {
@@ -673,6 +703,31 @@ async fn dispatcher(
                         tracing::info!("stopped Slack poll loop (no monitored channels)");
                     }
                 }
+            }
+
+            // -- Google Calendar actions --
+            Action::CalendarConnect => {
+                let shared_cal = shared.clone();
+                let tx_cal = _tx.clone();
+                tokio::spawn(async move {
+                    calendar_connect(shared_cal, tx_cal).await;
+                });
+            }
+
+            Action::CalendarDisconnect => {
+                if let Some(handle) = calendar_poll_handle.take() {
+                    handle.abort();
+                }
+                shared.mutate(|s| {
+                    s.google_calendar = GoogleCalendarState::default();
+                });
+            }
+
+            Action::CalendarRefresh => {
+                let shared_cal = shared.clone();
+                tokio::spawn(async move {
+                    calendar_refresh(shared_cal).await;
+                });
             }
 
             Action::ToggleNotifications => {
@@ -1113,6 +1168,14 @@ async fn run_automation(
 
     let run_id = uuid::Uuid::new_v4().to_string();
     let run_start = chrono::Utc::now();
+
+    // Initialize the log file.
+    conductor_core::automation::log_run_start(
+        &rule_id,
+        &run_id,
+        &rule.name,
+        event_context.as_deref(),
+    );
     let run = AutomationRunEntry {
         run_id: run_id.clone(),
         started_at: run_start,
@@ -1139,6 +1202,10 @@ async fn run_automation(
 
     for step in &rule.steps {
         if !step.enabled || pipeline_halted {
+            conductor_core::automation::log_step_complete(
+                &rule_id, &run_id, &step.step_id, &step.name,
+                "Skipped", 0, None, None, true,
+            );
             step_results.push(StepRunResult {
                 step_id: step.step_id.clone(),
                 step_name: step.name.clone(),
@@ -1152,6 +1219,21 @@ async fn run_automation(
             });
             continue;
         }
+
+        // Log step start.
+        let step_type_name = match &step.step_type {
+            StepAction::RunPrompt { .. } => "RunPrompt",
+            StepAction::RunJob { .. } => "RunJob",
+            StepAction::Notify { .. } => "Notify",
+            StepAction::Filter { .. } => "Filter",
+            StepAction::Delay { .. } => "Delay",
+            StepAction::Transform { .. } => "Transform",
+            StepAction::RunScript { .. } => "RunScript",
+        };
+        conductor_core::automation::log_step_start(
+            &rule_id, &run_id, &step.step_id, &step.name, step_type_name,
+            previous_output.as_deref(),
+        );
 
         let step_start = std::time::Instant::now();
         let outcome = execute_step(
@@ -1169,6 +1251,10 @@ async fn run_automation(
         match outcome {
             StepOutcome::Success { output } => {
                 tracing::debug!("step '{}' succeeded", step.name);
+                conductor_core::automation::log_step_complete(
+                    &rule_id, &run_id, &step.step_id, &step.name,
+                    "Success", elapsed, output.as_deref(), None, false,
+                );
                 step_results.push(StepRunResult {
                     step_id: step.step_id.clone(),
                     step_name: step.name.clone(),
@@ -1184,6 +1270,10 @@ async fn run_automation(
             }
             StepOutcome::Filtered => {
                 tracing::info!("step '{}' filtered — halting pipeline", step.name);
+                conductor_core::automation::log_step_complete(
+                    &rule_id, &run_id, &step.step_id, &step.name,
+                    "Filtered", elapsed, None, Some("Filter condition not met"), false,
+                );
                 pipeline_halted = true;
                 step_results.push(StepRunResult {
                     step_id: step.step_id.clone(),
@@ -1199,6 +1289,10 @@ async fn run_automation(
             }
             StepOutcome::Failed { error } => {
                 tracing::warn!("step '{}' failed: {error}", step.name);
+                conductor_core::automation::log_step_complete(
+                    &rule_id, &run_id, &step.step_id, &step.name,
+                    "Failure", elapsed, None, Some(&error), false,
+                );
                 pipeline_halted = true;
                 overall_error = Some(format!("Step '{}': {error}", step.name));
                 step_results.push(StepRunResult {
@@ -1255,6 +1349,14 @@ async fn run_automation(
         });
     });
 
+    // Log run completion.
+    conductor_core::automation::log_run_complete(
+        &rule_id,
+        &run_id,
+        &format!("{overall_status:?}"),
+        overall_elapsed,
+    );
+
     persist_automations(&shared);
     tracing::info!("automation '{}' completed ({overall_status:?})", rule.name);
 }
@@ -1273,6 +1375,7 @@ async fn execute_step(
             prompt,
             include_event_context,
             include_previous_output,
+            sandbox,
             ..
         } => {
             let mut full_prompt = prompt.clone();
@@ -1287,7 +1390,8 @@ async fn execute_step(
                 }
             }
 
-            run_prompt_step(shared, &rule.name, run_id, full_prompt).await
+            let sb = sandbox.as_ref().map(convert_sandbox);
+            run_prompt_step(shared, &rule.name, run_id, full_prompt, sb).await
         }
 
         StepAction::RunJob { job_id } => {
@@ -1347,13 +1451,52 @@ async fn execute_step(
             }
         }
 
-        StepAction::Transform { prompt } => {
+        StepAction::Transform { prompt, sandbox } => {
             let full_prompt = match previous_output {
                 Some(ref prev) => format!("Input:\n{prev}\n\n---\n\nInstruction: {prompt}"),
                 None => prompt.clone(),
             };
-            run_prompt_step(shared, &rule.name, run_id, full_prompt).await
+            let sb = sandbox.as_ref().map(convert_sandbox);
+            run_prompt_step(shared, &rule.name, run_id, full_prompt, sb).await
         }
+
+        StepAction::RunScript {
+            script_path,
+            entry_function,
+        } => {
+            let path = std::path::Path::new(script_path);
+            match conductor_core::scripting::run_script(
+                path,
+                entry_function,
+                previous_output.as_deref(),
+            )
+            .await
+            {
+                Ok(json_output) => StepOutcome::Success {
+                    output: Some(json_output),
+                },
+                Err(e) => StepOutcome::Failed {
+                    error: format!("Rune script error: {e}"),
+                },
+            }
+        }
+    }
+}
+
+/// Convert a serializable StepSandbox into the backend SandboxConfig.
+fn convert_sandbox(sb: &StepSandbox) -> conductor_core::backend::SandboxConfig {
+    conductor_core::backend::SandboxConfig {
+        mounts: sb
+            .mounts
+            .iter()
+            .map(|m| {
+                let host = std::path::PathBuf::from(&m.host_path);
+                let container = host.clone(); // mount at the same path inside the container
+                (host, container, m.read_only)
+            })
+            .collect(),
+        allow_network: sb.allow_network,
+        image: sb.image.clone(),
     }
 }
 
@@ -1363,6 +1506,7 @@ async fn run_prompt_step(
     rule_name: &str,
     run_id: &str,
     prompt: String,
+    sandbox: Option<conductor_core::backend::SandboxConfig>,
 ) -> StepOutcome {
     let (registry, fallback, default_backend) = {
         let state = shared.read();
@@ -1397,14 +1541,36 @@ async fn run_prompt_step(
         next_run: None,
     };
 
-    let completed = conductor_core::scheduler::execute_job(
+    tracing::info!(
+        "executing prompt step for '{}' using backend '{}' (prompt len: {}, {} backends in registry)",
+        rule_name,
+        default_backend,
+        temp_job.payload.prompt.len(),
+        registry.len(),
+    );
+    for b in &registry {
+        tracing::debug!(
+            "  backend '{}': enabled={}, discovery={:?}, auth={:?}, path={:?}",
+            b.backend_id, b.enabled, b.discovery_state, b.auth_state, b.binary_path,
+        );
+    }
+
+    let completed = conductor_core::scheduler::execute_job_sandboxed(
         &temp_job,
         &registry,
         &fallback,
         &default_backend,
         None,
+        sandbox,
     )
     .await;
+
+    tracing::info!(
+        "prompt step result: status={:?}, output_len={}, error={:?}",
+        completed.status,
+        completed.output_summary.as_ref().map_or(0, |s| s.len()),
+        completed.error,
+    );
 
     match completed.status {
         JobRunStatus::Success => StepOutcome::Success {
@@ -1415,6 +1581,238 @@ async fn run_prompt_step(
                 .error
                 .unwrap_or_else(|| "Unknown execution error".into()),
         },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Google Calendar
+// ---------------------------------------------------------------------------
+
+async fn calendar_connect(shared: SharedState, tx: mpsc::UnboundedSender<Action>) {
+    use conductor_core::channel::google_calendar;
+
+    shared.mutate(|s| {
+        s.google_calendar.status = GoogleCalendarStatus::Checking;
+        s.google_calendar.error = None;
+    });
+
+    match google_calendar::check_gcloud().await {
+        Ok(account) => {
+            shared.mutate(|s| {
+                s.google_calendar.account = Some(account.clone());
+                s.google_calendar.status = GoogleCalendarStatus::Connected;
+            });
+            tracing::info!("Google Calendar connected as {account}");
+        }
+        Err(e) => {
+            shared.mutate(|s| {
+                s.google_calendar.status = GoogleCalendarStatus::Error;
+                s.google_calendar.error = Some(e);
+            });
+            return;
+        }
+    }
+
+    // Load calendar list.
+    calendar_refresh(shared.clone()).await;
+
+    // Auto-start the poll loop if any automation rules use CalendarEvent triggers.
+    let has_calendar_triggers = {
+        let state = shared.read();
+        state.automation_rules.iter().any(|r| {
+            r.enabled && matches!(&r.trigger, TriggerCondition::CalendarEvent { .. })
+        })
+    };
+    if has_calendar_triggers {
+        let _ = tx.send(Action::CalendarRefresh);
+    }
+}
+
+async fn calendar_refresh(shared: SharedState) {
+    use conductor_core::channel::google_calendar;
+
+    match google_calendar::list_calendars().await {
+        Ok(calendars) => {
+            shared.mutate(|s| {
+                s.google_calendar.calendars = calendars
+                    .into_iter()
+                    .map(|c| CalendarInfo {
+                        id: c.id,
+                        summary: c.summary,
+                        primary: c.primary,
+                    })
+                    .collect();
+            });
+            tracing::info!("Google Calendar list refreshed");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to list calendars: {e}");
+            shared.mutate(|s| {
+                s.google_calendar.error = Some(format!("Failed to list calendars: {e}"));
+            });
+        }
+    }
+}
+
+/// Ensure the calendar poll loop is running if any automations use CalendarEvent triggers.
+fn sync_calendar_monitors(
+    shared: &SharedState,
+    calendar_poll_handle: &mut Option<tokio::task::JoinHandle<()>>,
+    tx: &mpsc::UnboundedSender<Action>,
+) {
+    let has_triggers = {
+        let state = shared.read();
+        state.google_calendar.status == GoogleCalendarStatus::Connected
+            && state.automation_rules.iter().any(|r| {
+                r.enabled && matches!(&r.trigger, TriggerCondition::CalendarEvent { .. })
+            })
+    };
+
+    if has_triggers && calendar_poll_handle.is_none() {
+        let shared_poll = shared.clone();
+        let tx_poll = tx.clone();
+        *calendar_poll_handle = Some(tokio::spawn(async move {
+            calendar_poll_loop(shared_poll, tx_poll).await;
+        }));
+        tracing::info!("started Google Calendar poll loop");
+    }
+
+    if !has_triggers {
+        if let Some(handle) = calendar_poll_handle.take() {
+            handle.abort();
+            tracing::info!("stopped Google Calendar poll loop (no calendar triggers)");
+        }
+    }
+}
+
+/// Poll for upcoming calendar events and match against automation rules.
+async fn calendar_poll_loop(shared: SharedState, tx: mpsc::UnboundedSender<Action>) {
+    use conductor_core::channel::google_calendar;
+    use std::collections::HashSet;
+
+    let poll_interval = std::time::Duration::from_secs(60);
+    // Track which event IDs we've already fired to avoid duplicate triggers.
+    let mut fired_events: HashSet<String> = HashSet::new();
+
+    loop {
+        tokio::time::sleep(poll_interval).await;
+
+        let rules = shared.read().automation_rules.clone();
+        let calendar_triggers: Vec<_> = rules
+            .iter()
+            .filter(|r| r.enabled && matches!(&r.trigger, TriggerCondition::CalendarEvent { .. }))
+            .collect();
+
+        if calendar_triggers.is_empty() {
+            continue;
+        }
+
+        // Determine the lookahead window: max minutes_before across all triggers + 2 min buffer.
+        let max_lookahead_mins = calendar_triggers
+            .iter()
+            .filter_map(|r| match &r.trigger {
+                TriggerCondition::CalendarEvent { minutes_before, .. } => Some(*minutes_before),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0) as i64
+            + 2;
+
+        let now = chrono::Utc::now();
+        let time_max = now + chrono::Duration::minutes(max_lookahead_mins);
+
+        // Collect unique calendar IDs from triggers.
+        let mut calendar_ids: Vec<String> = Vec::new();
+        for rule in &calendar_triggers {
+            if let TriggerCondition::CalendarEvent { calendar_id, .. } = &rule.trigger {
+                if !calendar_ids.contains(calendar_id) {
+                    calendar_ids.push(calendar_id.clone());
+                }
+            }
+        }
+
+        // Fetch events from each calendar.
+        for cal_id in &calendar_ids {
+            match google_calendar::fetch_upcoming_events(cal_id, now, time_max).await {
+                Ok(events) => {
+                    for event in &events {
+                        // Check each trigger rule.
+                        for rule in &calendar_triggers {
+                            if let TriggerCondition::CalendarEvent {
+                                calendar_id: trigger_cal,
+                                keyword_filter,
+                                minutes_before,
+                            } = &rule.trigger
+                            {
+                                if trigger_cal != cal_id {
+                                    continue;
+                                }
+
+                                // Check if event starts within the trigger window.
+                                let trigger_time =
+                                    event.start - chrono::Duration::minutes(*minutes_before as i64);
+                                if now < trigger_time {
+                                    continue; // Not yet time.
+                                }
+
+                                // Check keyword filter.
+                                if let Some(kw) = keyword_filter {
+                                    let text = format!(
+                                        "{} {}",
+                                        event.summary,
+                                        event.description.as_deref().unwrap_or("")
+                                    )
+                                    .to_lowercase();
+                                    let matches = kw
+                                        .split(',')
+                                        .map(|k| k.trim().to_lowercase())
+                                        .any(|k| text.contains(&k));
+                                    if !matches {
+                                        continue;
+                                    }
+                                }
+
+                                // Deduplicate: don't fire the same event+rule combo twice.
+                                let fire_key =
+                                    format!("{}:{}", rule.rule_id, event.id);
+                                if fired_events.contains(&fire_key) {
+                                    continue;
+                                }
+                                fired_events.insert(fire_key);
+
+                                tracing::info!(
+                                    "Calendar event '{}' matched automation '{}'",
+                                    event.summary,
+                                    rule.name,
+                                );
+
+                                let event_context = format!(
+                                    "Google Calendar event:\nTitle: {}\nStart: {}\nEnd: {}\nCalendar: {}\n{}",
+                                    event.summary,
+                                    event.start.format("%Y-%m-%d %H:%M"),
+                                    event.end.format("%Y-%m-%d %H:%M"),
+                                    cal_id,
+                                    event.description.as_deref().unwrap_or(""),
+                                );
+
+                                let _ = tx.send(Action::RunAutomation {
+                                    rule_id: rule.rule_id.clone(),
+                                    event_context: Some(event_context),
+                                });
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Calendar poll failed for {cal_id}: {e}");
+                }
+            }
+        }
+
+        // Clean up old fired events (keep only recent ones to prevent memory leak).
+        if fired_events.len() > 1000 {
+            fired_events.clear();
+        }
     }
 }
 
@@ -1848,6 +2246,15 @@ async fn run_backend_scan(shared: SharedState) {
     });
 
     let results = conductor_core::backend::discovery::scan_all_backends().await;
+    tracing::info!(
+        "backend scan complete: {} backends found ({})",
+        results.len(),
+        results.iter()
+            .filter(|b| b.discovery_state == DiscoveryState::Found)
+            .map(|b| b.backend_id.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
 
     shared.mutate(|s| {
         s.backend_registry = results;

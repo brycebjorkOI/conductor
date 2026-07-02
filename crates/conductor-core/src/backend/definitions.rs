@@ -142,6 +142,7 @@ impl BackendDefinition for AnthropicBackend {
             args,
             env: HashMap::new(),
             working_dir: None,
+            sandbox: None,
         }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> {
@@ -219,6 +220,7 @@ impl BackendDefinition for OllamaBackend {
             args: vec!["run".into(), model, params.message.clone()],
             env: HashMap::new(),
             working_dir: None,
+            sandbox: None,
         }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> {
@@ -263,7 +265,7 @@ impl BackendDefinition for OpenAiBackend {
             args.push(model.clone());
         }
         args.push(params.message.clone());
-        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None }
+        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None, sandbox: None }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
 }
@@ -304,7 +306,7 @@ impl BackendDefinition for GeminiBackend {
             args.push(model.clone());
         }
         args.push(params.message.clone());
-        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None }
+        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None, sandbox: None }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
 }
@@ -344,7 +346,7 @@ impl BackendDefinition for CodexBackend {
             args.push(model.clone());
         }
         args.push(params.message.clone());
-        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None }
+        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None, sandbox: None }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
 }
@@ -376,6 +378,7 @@ impl BackendDefinition for CopilotBackend {
             args: vec!["copilot".into(), "suggest".into(), params.message.clone()],
             env: HashMap::new(),
             working_dir: None,
+            sandbox: None,
         }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
@@ -408,6 +411,7 @@ impl BackendDefinition for AwsQBackend {
             args: vec!["chat".into(), params.message.clone()],
             env: HashMap::new(),
             working_dir: None,
+            sandbox: None,
         }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
@@ -471,7 +475,7 @@ impl BackendDefinition for GenericBackend {
                 .replace("{model}", params.model.as_deref().unwrap_or(""))
                 .replace("{extra_args}", &params.extra_args.join(" "))
         }).collect();
-        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None }
+        CliCommand { binary: binary_path.clone(), args, env: HashMap::new(), working_dir: None, sandbox: None }
     }
     fn create_parser(&self) -> Box<dyn StreamParser> { Box::new(PlainTextParser::new()) }
 }

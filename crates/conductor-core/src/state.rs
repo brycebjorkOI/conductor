@@ -44,6 +44,7 @@ pub struct AppState {
     pub mcp_servers: HashMap<String, Vec<McpServerEntry>>,
     pub media_devices: MediaDeviceState,
     pub slack: SlackConnectionState,
+    pub google_calendar: GoogleCalendarState,
 
     pub config: crate::config::AppConfig,
 }
@@ -82,6 +83,7 @@ impl Default for AppState {
             mcp_servers: HashMap::new(),
             media_devices: MediaDeviceState::default(),
             slack: SlackConnectionState::default(),
+            google_calendar: GoogleCalendarState::default(),
             config: crate::config::AppConfig::default(),
         }
     }
@@ -684,6 +686,15 @@ pub enum TriggerCondition {
     Schedule {
         definition: ScheduleDefinition,
     },
+    /// Fires when a Google Calendar event starts (or N minutes before).
+    CalendarEvent {
+        /// Calendar ID (e.g. "primary" or a specific calendar email).
+        calendar_id: String,
+        /// Optional keyword filter on event title/description.
+        keyword_filter: Option<String>,
+        /// Minutes before event start to trigger (0 = at start time).
+        minutes_before: u32,
+    },
     /// Only fires when the user clicks "Run" manually.
     Manual,
 }
@@ -725,6 +736,8 @@ pub enum StepAction {
         include_previous_output: bool,
         backend_override: Option<String>,
         model_override: Option<String>,
+        #[serde(default)]
+        sandbox: Option<StepSandbox>,
     },
     /// Trigger an existing scheduled job.
     RunJob {
@@ -745,7 +758,39 @@ pub enum StepAction {
     /// Transform the previous output via an AI prompt.
     Transform {
         prompt: String,
+        #[serde(default)]
+        sandbox: Option<StepSandbox>,
     },
+    /// Run a Rune script file. The script receives `input` (previous output)
+    /// and returns a JSON object of named variables for subsequent steps.
+    RunScript {
+        script_path: String,
+        /// Function to call in the script (default: "main").
+        #[serde(default = "default_entry_fn")]
+        entry_function: String,
+    },
+}
+
+fn default_entry_fn() -> String {
+    "main".into()
+}
+
+/// Docker sandbox configuration for an automation step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepSandbox {
+    /// Paths to mount into the container as (host_path, read_only).
+    pub mounts: Vec<SandboxMount>,
+    /// Allow network access (default false).
+    #[serde(default)]
+    pub allow_network: bool,
+    /// Docker image override (default: auto-selected based on backend).
+    pub image: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxMount {
+    pub host_path: String,
+    pub read_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -947,6 +992,34 @@ pub struct SlackChannelInfo {
     pub id: String,
     pub name: String,
     pub is_private: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Google Calendar
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GoogleCalendarState {
+    pub status: GoogleCalendarStatus,
+    pub account: Option<String>,
+    pub calendars: Vec<CalendarInfo>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GoogleCalendarStatus {
+    #[default]
+    Disconnected,
+    Checking,
+    Connected,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalendarInfo {
+    pub id: String,
+    pub summary: String,
+    pub primary: bool,
 }
 
 // ---------------------------------------------------------------------------

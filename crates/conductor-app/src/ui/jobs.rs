@@ -7,6 +7,7 @@ use crate::bridge::SharedState;
 pub struct JobsView {
     shared: SharedState,
     filter: JobFilter,
+    expanded_job: Option<String>,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +24,7 @@ impl JobsView {
         Self {
             shared,
             filter: JobFilter::default(),
+            expanded_job: None,
         }
     }
 }
@@ -33,6 +35,7 @@ impl View for JobsView {
 
         let state = self.shared.read();
         let mut entries = state.job_history.clone();
+        let automation_rules = state.automation_rules.clone();
         drop(state);
 
         // Sort newest first.
@@ -128,14 +131,26 @@ impl View for JobsView {
             // Job list.
             ScrollView::vertical().show(ui, |ui| {
                 for entry in &filtered {
-                    show_job_entry(ui, entry, &p);
+                    show_job_entry(
+                        ui,
+                        entry,
+                        &automation_rules,
+                        &mut self.expanded_job,
+                        &p,
+                    );
                 }
             });
         });
     }
 }
 
-fn show_job_entry(ui: &mut egui::Ui, entry: &JobHistoryEntry, p: &Palette) {
+fn show_job_entry(
+    ui: &mut egui::Ui,
+    entry: &JobHistoryEntry,
+    automation_rules: &[AutomationRule],
+    expanded_job: &mut Option<String>,
+    p: &Palette,
+) {
     let (status_icon, status_color) = match entry.status {
         JobRunStatus::Running => ("\u{25cf}", p.accent),      // ●
         JobRunStatus::Success => ("\u{2713}", p.status_green), // ✓
@@ -228,5 +243,127 @@ fn show_job_entry(ui: &mut egui::Ui, entry: &JobHistoryEntry, p: &Palette) {
                 .color(p.status_red)
                 .show(ui);
         }
+
+        // Expandable step details for automation runs.
+        if entry.trigger == JobTrigger::Automation {
+            // Look up the automation rule's run history to find step_results.
+            let step_results = entry.job_id.as_ref().and_then(|rule_id| {
+                automation_rules
+                    .iter()
+                    .find(|r| r.rule_id == *rule_id)
+                    .and_then(|rule| {
+                        rule.history
+                            .iter()
+                            .find(|h| h.run_id == entry.run_id)
+                            .map(|h| h.step_results.clone())
+                    })
+            });
+
+            if let Some(ref steps) = step_results {
+                if !steps.is_empty() {
+                    let mut expanded =
+                        expanded_job.as_deref() == Some(&entry.run_id);
+                    DisclosureGroup::new(
+                        &format!("Steps ({})", steps.len()),
+                        &mut expanded,
+                    )
+                    .show(ui, |ui| {
+                        for step in steps {
+                            show_step_result(ui, step, p);
+                        }
+
+                        // Log file link.
+                        if let Some(ref rule_id) = entry.job_id {
+                            let log_path = conductor_core::automation::run_log_path(
+                                rule_id,
+                                &entry.run_id,
+                            );
+                            if log_path.exists() {
+                                egui_swift::spacer!(ui, 4.0);
+                                if Button::new("View Full Log")
+                                    .style(ButtonStyle::Bordered)
+                                    .small(true)
+                                    .show(ui)
+                                    .clicked()
+                                {
+                                    let _ = open::that(&log_path);
+                                }
+                                Label::new(&log_path.display().to_string())
+                                    .font(Font::Footnote)
+                                    .monospace(true)
+                                    .muted()
+                                    .show(ui);
+                            }
+                        }
+                    });
+
+                    if expanded {
+                        *expanded_job = Some(entry.run_id.clone());
+                    } else if expanded_job.as_deref() == Some(&entry.run_id) {
+                        *expanded_job = None;
+                    }
+                }
+            }
+        }
     });
+}
+
+fn show_step_result(ui: &mut egui::Ui, step: &StepRunResult, p: &Palette) {
+    let (icon, color) = match step.status {
+        JobRunStatus::Success => ("\u{2713}", p.status_green),
+        JobRunStatus::Failure => ("\u{2717}", p.status_red),
+        JobRunStatus::Running => ("\u{25cf}", p.accent),
+        JobRunStatus::Cancelled => ("\u{2014}", p.text_muted),
+    };
+
+    egui_swift::hstack!(ui, {
+        Label::new(icon)
+            .font(Font::Footnote)
+            .color(color)
+            .show(ui);
+        Label::new(&step.step_name)
+            .font(Font::Footnote)
+            .bold(true)
+            .show(ui);
+        if step.skipped {
+            Label::new("skipped")
+                .font(Font::Footnote)
+                .muted()
+                .show(ui);
+        }
+        if let Some(ms) = step.duration_ms {
+            if ms > 0 {
+                let dur = if ms < 1000 {
+                    format!("{ms}ms")
+                } else {
+                    format!("{:.1}s", ms as f64 / 1000.0)
+                };
+                Label::new(&dur)
+                    .font(Font::Footnote)
+                    .color(p.text_muted)
+                    .show(ui);
+            }
+        }
+    });
+
+    // Output preview.
+    if let Some(ref output) = step.output {
+        let preview = if output.len() > 200 {
+            format!("{}...", &output[..197])
+        } else {
+            output.clone()
+        };
+        Label::new(&preview)
+            .font(Font::Footnote)
+            .color(p.text_muted)
+            .show(ui);
+    }
+
+    // Error.
+    if let Some(ref err) = step.error {
+        Label::new(err)
+            .font(Font::Footnote)
+            .color(p.status_red)
+            .show(ui);
+    }
 }

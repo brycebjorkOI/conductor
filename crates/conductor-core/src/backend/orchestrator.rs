@@ -32,8 +32,32 @@ pub async fn run_chat_streaming(
     params: ChatParams,
     working_dir: Option<PathBuf>,
     env_overrides: &HashMap<String, String>,
+    cancel_rx: oneshot::Receiver<()>,
+    on_event: impl FnMut(StreamEvent),
+) -> SendOutcome {
+    run_chat_streaming_sandboxed(
+        backend_def,
+        binary_path,
+        params,
+        working_dir,
+        env_overrides,
+        cancel_rx,
+        on_event,
+        None,
+    )
+    .await
+}
+
+/// Like `run_chat_streaming` but with optional Docker sandbox isolation.
+pub async fn run_chat_streaming_sandboxed(
+    backend_def: &dyn BackendDefinition,
+    binary_path: &PathBuf,
+    params: ChatParams,
+    working_dir: Option<PathBuf>,
+    env_overrides: &HashMap<String, String>,
     mut cancel_rx: oneshot::Receiver<()>,
     mut on_event: impl FnMut(StreamEvent),
+    sandbox: Option<super::SandboxConfig>,
 ) -> SendOutcome {
     let mut cli_cmd = backend_def.build_chat_command(binary_path, &params);
     if let Some(ref wd) = working_dir {
@@ -42,6 +66,14 @@ pub async fn run_chat_streaming(
 
     let env = security::sanitize_env(env_overrides, security::SanitizeMode::Standard);
     cli_cmd.env = env;
+
+    tracing::debug!(
+        "spawning: {} {}{}",
+        cli_cmd.binary.display(),
+        cli_cmd.args.join(" "),
+        if cli_cmd.sandbox.is_some() { " [sandboxed]" } else { "" },
+    );
+    cli_cmd.sandbox = sandbox;
 
     let mut child = match spawn_process(&cli_cmd) {
         Ok(c) => c,
@@ -92,6 +124,17 @@ pub async fn run_chat_streaming(
         String::new()
     };
 
+    if exit_code != 0 || !stderr_text.is_empty() {
+        tracing::warn!(
+            "process exited with code {exit_code}{}",
+            if stderr_text.is_empty() {
+                String::new()
+            } else {
+                format!(", stderr: {}", stderr_text.chars().take(500).collect::<String>())
+            }
+        );
+    }
+
     let final_events = parser.finish(exit_code, &stderr_text);
     for event in final_events {
         on_event(event);
@@ -114,8 +157,21 @@ pub async fn run_chat(
     env_overrides: &HashMap<String, String>,
     cancel_rx: oneshot::Receiver<()>,
 ) -> SendOutcome {
+    run_chat_sandboxed(backend_def, binary_path, params, working_dir, env_overrides, cancel_rx, None).await
+}
+
+/// Like `run_chat` but with optional Docker sandbox.
+pub async fn run_chat_sandboxed(
+    backend_def: &dyn BackendDefinition,
+    binary_path: &PathBuf,
+    params: ChatParams,
+    working_dir: Option<PathBuf>,
+    env_overrides: &HashMap<String, String>,
+    cancel_rx: oneshot::Receiver<()>,
+    sandbox: Option<super::SandboxConfig>,
+) -> SendOutcome {
     let mut all_events = Vec::new();
-    let outcome = run_chat_streaming(
+    let outcome = run_chat_streaming_sandboxed(
         backend_def,
         binary_path,
         params,
@@ -125,6 +181,7 @@ pub async fn run_chat(
         |event| {
             all_events.push(event);
         },
+        sandbox,
     )
     .await;
 
@@ -140,6 +197,21 @@ pub async fn run_chat(
 fn spawn_process(
     cmd: &CliCommand,
 ) -> Result<tokio::process::Child, std::io::Error> {
+    if let Some(ref sandbox) = cmd.sandbox {
+        // Docker sandboxing: only works on Linux where host binaries run natively
+        // in containers. On macOS, host binaries are Mach-O and won't run in
+        // Linux containers. Fall back to direct execution with a warning.
+        if cfg!(target_os = "linux") {
+            return spawn_docker_process(cmd, sandbox);
+        } else {
+            tracing::warn!(
+                "Docker sandbox requested but host OS is not Linux — \
+                 macOS binaries cannot run in Linux containers. \
+                 Running without sandbox. Use CLI --directory flags for scoping."
+            );
+        }
+    }
+
     let mut builder = Command::new(&cmd.binary);
     builder
         .args(&cmd.args)
@@ -153,6 +225,99 @@ fn spawn_process(
 
     if let Some(ref wd) = cmd.working_dir {
         builder.current_dir(wd);
+    }
+
+    builder.spawn()
+}
+
+/// Spawn the CLI command inside a Docker container for isolation.
+fn spawn_docker_process(
+    cmd: &CliCommand,
+    sandbox: &crate::backend::SandboxConfig,
+) -> Result<tokio::process::Child, std::io::Error> {
+    let docker = which::which("docker").map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "docker not found in PATH")
+    })?;
+
+    let mut args: Vec<String> = vec![
+        "run".into(),
+        "--rm".into(),
+        "-i".into(),
+    ];
+
+    // Network isolation.
+    if !sandbox.allow_network {
+        args.push("--network".into());
+        args.push("none".into());
+    }
+
+    // Auto-mount the backend binary into the container so it's available
+    // at the same path. Mount the parent dir (e.g. /opt/homebrew/bin) read-only.
+    if let Some(bin_dir) = cmd.binary.parent() {
+        let dir = bin_dir.display();
+        args.push("-v".into());
+        args.push(format!("{dir}:{dir}:ro"));
+    }
+
+    // Also mount HOME for CLI config files (tokens, etc.) read-only.
+    if let Ok(home) = std::env::var("HOME") {
+        args.push("-v".into());
+        args.push(format!("{home}:{home}:ro"));
+    }
+
+    // User-specified volume mounts.
+    for (host_path, container_path, read_only) in &sandbox.mounts {
+        let host = host_path.display();
+        let container = container_path.display();
+        if *read_only {
+            args.push("-v".into());
+            args.push(format!("{host}:{container}:ro"));
+        } else {
+            args.push("-v".into());
+            args.push(format!("{host}:{container}"));
+        }
+    }
+
+    // Working directory inside the container.
+    if let Some(ref wd) = cmd.working_dir {
+        args.push("-w".into());
+        args.push(wd.display().to_string());
+    }
+
+    // Pass through sanitized environment variables.
+    for (k, v) in &cmd.env {
+        args.push("-e".into());
+        args.push(format!("{k}={v}"));
+    }
+
+    // Image.
+    let image = sandbox
+        .image
+        .clone()
+        .unwrap_or_else(|| "ubuntu:latest".into());
+    args.push(image);
+
+    // The actual command to run inside the container.
+    args.push(cmd.binary.display().to_string());
+    args.extend(cmd.args.iter().cloned());
+
+    let mut builder = Command::new(docker);
+    builder
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .env_clear();
+
+    // Docker itself needs minimal host env to function.
+    if let Ok(home) = std::env::var("HOME") {
+        builder.env("HOME", home);
+    }
+    if let Ok(path) = std::env::var("PATH") {
+        builder.env("PATH", path);
+    }
+    // Docker socket config.
+    if let Ok(host) = std::env::var("DOCKER_HOST") {
+        builder.env("DOCKER_HOST", host);
     }
 
     builder.spawn()

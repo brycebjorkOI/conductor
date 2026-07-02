@@ -38,6 +38,17 @@ pub struct ChatParams {
     pub system_prompt: Option<String>,
 }
 
+/// Docker-based sandbox configuration for CLI subprocess isolation.
+#[derive(Debug, Clone, Default)]
+pub struct SandboxConfig {
+    /// Directory mounts: (host_path, container_path, read_only).
+    pub mounts: Vec<(PathBuf, PathBuf, bool)>,
+    /// Whether to allow network access (default: false = --network none).
+    pub allow_network: bool,
+    /// Docker image to use (default: built from the backend binary).
+    pub image: Option<String>,
+}
+
 /// The resolved CLI command to execute.
 #[derive(Debug, Clone)]
 pub struct CliCommand {
@@ -45,6 +56,8 @@ pub struct CliCommand {
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
     pub working_dir: Option<PathBuf>,
+    /// If set, the command is wrapped in `docker run` with this config.
+    pub sandbox: Option<SandboxConfig>,
 }
 
 /// Describes how to interact with an AI CLI backend.

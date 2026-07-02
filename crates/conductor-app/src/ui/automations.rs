@@ -11,6 +11,7 @@ pub struct AutomationsView {
     shared: SharedState,
     tx: mpsc::UnboundedSender<Action>,
     show_add_form: bool,
+    editing_rule_id: Option<String>,
     form: RuleForm,
     expanded_history: Option<String>,
 }
@@ -21,6 +22,7 @@ impl AutomationsView {
             shared,
             tx,
             show_add_form: false,
+            editing_rule_id: None,
             form: RuleForm::default(),
             expanded_history: None,
         }
@@ -49,6 +51,10 @@ pub struct RuleForm {
     pub schedule_type: u8, // 0=interval, 1=cron
     pub interval_minutes: u32,
     pub cron_expression: String,
+    // Calendar trigger fields.
+    pub calendar_id: String,
+    pub calendar_keyword: String,
+    pub calendar_minutes_before: u32,
     // Steps.
     pub steps: Vec<StepForm>,
 }
@@ -57,7 +63,7 @@ pub struct RuleForm {
 #[derive(Default)]
 pub struct StepForm {
     pub name: String,
-    // 0=RunPrompt, 1=RunJob, 2=Notify, 3=Filter, 4=Delay, 5=Transform
+    // 0=RunPrompt, 1=RunJob, 2=Notify, 3=Filter, 4=Delay, 5=Transform, 6=RunScript
     pub step_type: u8,
     pub prompt: String,
     pub include_event_context: bool,
@@ -69,6 +75,16 @@ pub struct StepForm {
     pub delay_seconds: u64,
     pub transform_prompt: String,
     pub collapsed: bool,
+    // Sandbox config.
+    pub sandbox_enabled: bool,
+    pub sandbox_mounts: Vec<(String, bool)>, // (path, read_only)
+    pub sandbox_allow_network: bool,
+    pub sandbox_image: String,
+    pub sandbox_new_mount: String,
+    pub sandbox_new_mount_readonly: bool,
+    // Rune script config.
+    pub script_path: String,
+    pub script_entry_function: String,
 }
 
 impl View for AutomationsView {
@@ -91,6 +107,10 @@ impl View for AutomationsView {
                         .clicked()
                     {
                         self.show_add_form = !self.show_add_form;
+                        self.editing_rule_id = None;
+                        if self.show_add_form {
+                            self.form = RuleForm::default();
+                        }
                     }
                 });
             });
@@ -102,9 +122,9 @@ impl View for AutomationsView {
                 .show(ui);
             egui_swift::spacer!(ui, 12.0);
 
-            // -- Add Rule form --
+            // -- Add/Edit Rule form --
             if self.show_add_form {
-                show_add_form(ui, &self.tx, &self.shared, &mut self.form, &mut self.show_add_form, &p);
+                show_add_form(ui, &self.tx, &self.shared, &mut self.form, &mut self.show_add_form, &self.editing_rule_id, &p);
                 egui_swift::spacer!(ui, 8.0);
                 Divider::new().show(ui);
                 egui_swift::spacer!(ui, 8.0);
@@ -119,11 +139,23 @@ impl View for AutomationsView {
                 return;
             }
 
+            let mut edit_rule_id: Option<String> = None;
             ScrollView::vertical().show(ui, |ui| {
                 for rule in &rules {
-                    show_rule_card(ui, rule, &self.tx, &mut self.expanded_history, &p);
+                    if let Some(rid) = show_rule_card(ui, rule, &self.tx, &mut self.expanded_history, &p) {
+                        edit_rule_id = Some(rid);
+                    }
                 }
             });
+
+            // Handle edit button click — populate form from existing rule.
+            if let Some(rid) = edit_rule_id {
+                if let Some(rule) = rules.iter().find(|r| r.rule_id == rid) {
+                    self.form = form_from_rule(rule);
+                    self.editing_rule_id = Some(rid);
+                    self.show_add_form = true;
+                }
+            }
         });
     }
 }
@@ -134,14 +166,21 @@ fn show_add_form(
     shared: &crate::bridge::SharedState,
     form: &mut RuleForm,
     show_add_form: &mut bool,
+    editing_rule_id: &Option<String>,
     p: &Palette,
 ) {
+    let is_editing = editing_rule_id.is_some();
     Card::new().border_color(p.border).shadow(true).show(ui, |ui| {
-        Label::new("New Automation Rule")
+        let title = if is_editing { "Edit Automation Rule" } else { "New Automation Rule" };
+        Label::new(title)
             .font(Font::Headline)
             .bold(true)
             .show(ui);
         egui_swift::spacer!(ui, 8.0);
+
+        // Scroll the form content when it's taller than available space.
+        let max_h = (ui.available_height() - 40.0).max(200.0);
+        egui::ScrollArea::vertical().max_height(max_h).show(ui, |ui| {
 
         // Name + description.
         TextField::new(&mut form.name)
@@ -163,6 +202,7 @@ fn show_add_form(
                 (2, "Webhook"),
                 (3, "Channel message"),
                 (4, "Schedule"),
+                (5, "Calendar event"),
             ];
             RadioGroup::new(&mut form.trigger_type, &trigger_types).show(ui);
         });
@@ -244,6 +284,72 @@ fn show_add_form(
                     }
                 }
             }
+            5 => {
+                // Calendar event trigger.
+                let state = shared.read();
+                let cal_connected = state.google_calendar.status == GoogleCalendarStatus::Connected;
+                let calendars = state.google_calendar.calendars.clone();
+                drop(state);
+
+                if !cal_connected {
+                    Label::new("Google Calendar not connected. Ensure gcloud is authenticated.")
+                        .font(Font::Caption)
+                        .color(p.status_red)
+                        .show(ui);
+                } else {
+                    // Calendar picker.
+                    if calendars.is_empty() {
+                        TextField::new(&mut form.calendar_id)
+                            .label("Calendar ID")
+                            .placeholder("primary")
+                            .show(ui);
+                    } else {
+                        let options: Vec<(String, String)> = calendars
+                            .iter()
+                            .map(|c| {
+                                let label = if c.primary {
+                                    format!("{} (primary)", c.summary)
+                                } else {
+                                    c.summary.clone()
+                                };
+                                (c.id.clone(), label)
+                            })
+                            .collect();
+                        let picker_opts: Vec<(String, &str)> = options
+                            .iter()
+                            .map(|(id, label)| (id.clone(), label.as_str()))
+                            .collect();
+                        if form.calendar_id.is_empty() {
+                            // Default to primary.
+                            if let Some(primary) = calendars.iter().find(|c| c.primary) {
+                                form.calendar_id = primary.id.clone();
+                            }
+                        }
+                        Picker::new("Calendar", &mut form.calendar_id, &picker_opts).show(ui);
+                    }
+                    egui_swift::spacer!(ui, 4.0);
+
+                    egui_swift::hstack!(ui, {
+                        Label::new("Trigger").font(Font::Callout).show(ui);
+                        ui.add(egui::DragValue::new(&mut form.calendar_minutes_before).range(0..=120));
+                        Label::new("minutes before event starts").font(Font::Callout).show(ui);
+                    });
+                    Label::new("Set to 0 to trigger at event start time")
+                        .font(Font::Caption)
+                        .muted()
+                        .show(ui);
+
+                    egui_swift::spacer!(ui, 4.0);
+                    TextField::new(&mut form.calendar_keyword)
+                        .label("Keyword filter (optional)")
+                        .placeholder("e.g. standup, 1:1")
+                        .show(ui);
+                    Label::new("Filter on event title/description. Leave empty for all events.")
+                        .font(Font::Caption)
+                        .muted()
+                        .show(ui);
+                }
+            }
             _ => {
                 Label::new("This rule will only fire when you click \"Run\" manually.")
                     .font(Font::Caption)
@@ -275,8 +381,9 @@ fn show_add_form(
                 format!("Step {step_num}: {}", form.steps[i].name)
             };
 
-            let step = &mut form.steps[i];
-            DisclosureGroup::new(&header, &mut step.collapsed).show(ui, |ui| {
+            let mut collapsed = form.steps[i].collapsed;
+            DisclosureGroup::new(&header, &mut collapsed).show(ui, |ui| {
+                let step = &mut form.steps[i];
                 TextField::new(&mut step.name)
                     .label("Step name")
                     .placeholder("e.g. Summarize message")
@@ -290,6 +397,7 @@ fn show_add_form(
                     (3, "Filter"),
                     (4, "Delay"),
                     (5, "Transform"),
+                    (6, "Run Rune script"),
                 ];
                 RadioGroup::new(&mut step.step_type, &step_types).show(ui);
                 egui_swift::spacer!(ui, 4.0);
@@ -308,6 +416,8 @@ fn show_add_form(
                         Toggle::new(&mut step.include_previous_output)
                             .label("Include previous step output")
                             .show(ui);
+                        egui_swift::spacer!(ui, 4.0);
+                        show_sandbox_config(ui, step);
                     }
                     1 => {
                         TextField::new(&mut step.target_job_id)
@@ -359,6 +469,25 @@ fn show_add_form(
                             .font(Font::Caption)
                             .muted()
                             .show(ui);
+                        egui_swift::spacer!(ui, 4.0);
+                        show_sandbox_config(ui, step);
+                    }
+                    6 => {
+                        TextField::new(&mut step.script_path)
+                            .label("Script path")
+                            .placeholder("/path/to/script.rn")
+                            .monospace(true)
+                            .show(ui);
+                        egui_swift::spacer!(ui, 4.0);
+                        TextField::new(&mut step.script_entry_function)
+                            .label("Entry function")
+                            .placeholder("main")
+                            .monospace(true)
+                            .show(ui);
+                        Label::new("The previous step's output is passed as the first argument. Return an object (#{ key: value }) — it will be serialized as JSON for the next step.")
+                            .font(Font::Caption)
+                            .muted()
+                            .show(ui);
                     }
                     _ => {}
                 }
@@ -395,6 +524,7 @@ fn show_add_form(
                     }
                 });
             });
+            form.steps[i].collapsed = collapsed;
             egui_swift::spacer!(ui, 4.0);
         }
 
@@ -414,10 +544,11 @@ fn show_add_form(
         {
             form.steps.push(StepForm::default());
         }
+        }); // end ScrollArea
 
-        egui_swift::spacer!(ui, 12.0);
+        egui_swift::spacer!(ui, 8.0);
 
-        // Buttons.
+        // Buttons (outside scroll so they're always visible).
         let can_create = !form.name.trim().is_empty() && !form.steps.is_empty();
 
         ButtonRow::show(ui, |ui| {
@@ -428,7 +559,8 @@ fn show_add_form(
             {
                 *show_add_form = false;
             }
-            if Button::new("Create Rule")
+            let submit_label = if is_editing { "Save Changes" } else { "Create Rule" };
+            if Button::new(submit_label)
                 .style(ButtonStyle::BorderedProminent)
                 .enabled(can_create)
                 .show(ui)
@@ -437,8 +569,12 @@ fn show_add_form(
                 let trigger = build_trigger(form);
                 let steps = build_steps(&form.steps);
 
+                let rule_id = editing_rule_id
+                    .clone()
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
                 let rule = AutomationRule {
-                    rule_id: uuid::Uuid::new_v4().to_string(),
+                    rule_id,
                     name: form.name.clone(),
                     description: form.description.clone(),
                     enabled: true,
@@ -451,7 +587,11 @@ fn show_add_form(
                     history: Vec::new(),
                 };
 
-                let _ = tx.send(Action::CreateAutomation { rule });
+                if is_editing {
+                    let _ = tx.send(Action::UpdateAutomation { rule });
+                } else {
+                    let _ = tx.send(Action::CreateAutomation { rule });
+                }
                 *form = RuleForm::default();
                 *show_add_form = false;
             }
@@ -459,13 +599,15 @@ fn show_add_form(
     });
 }
 
+/// Returns Some(rule_id) if the Edit button was clicked.
 fn show_rule_card(
     ui: &mut egui::Ui,
     rule: &AutomationRule,
     tx: &mpsc::UnboundedSender<Action>,
     expanded_history: &mut Option<String>,
     p: &Palette,
-) {
+) -> Option<String> {
+    let mut edit_clicked = false;
     let status_color = if rule.enabled {
         p.status_green
     } else {
@@ -550,6 +692,15 @@ fn show_rule_card(
                 });
             }
 
+            if Button::new("Edit")
+                .style(ButtonStyle::Bordered)
+                .small(true)
+                .show(ui)
+                .clicked()
+            {
+                edit_clicked = true;
+            }
+
             let toggle_label = if rule.enabled { "Disable" } else { "Enable" };
             if Button::new(toggle_label)
                 .style(ButtonStyle::Bordered)
@@ -631,6 +782,12 @@ fn show_rule_card(
             }
         }
     });
+
+    if edit_clicked {
+        Some(rule.rule_id.clone())
+    } else {
+        None
+    }
 }
 
 fn describe_trigger(trigger: &TriggerCondition) -> String {
@@ -664,6 +821,16 @@ fn describe_trigger(trigger: &TriggerCondition) -> String {
                 }
             }
         }
+        TriggerCondition::CalendarEvent { calendar_id, keyword_filter, minutes_before } => {
+            let mut desc = format!("Calendar event on {calendar_id}");
+            if *minutes_before > 0 {
+                desc.push_str(&format!(" ({minutes_before}min before)"));
+            }
+            if let Some(kw) = keyword_filter {
+                desc.push_str(&format!(" matching \"{kw}\""));
+            }
+            desc
+        }
         TriggerCondition::Manual => "Manual trigger".into(),
     }
 }
@@ -694,13 +861,20 @@ fn describe_step(step: &StepAction) -> String {
             FilterCondition::IsNotEmpty => "Filter: is not empty".into(),
         },
         StepAction::Delay { seconds } => format!("Delay {seconds}s"),
-        StepAction::Transform { prompt } => {
+        StepAction::Transform { prompt, .. } => {
             let preview = if prompt.len() > 50 {
                 format!("{}...", &prompt[..47])
             } else {
                 prompt.clone()
             };
             format!("Transform: \"{preview}\"")
+        }
+        StepAction::RunScript { script_path, .. } => {
+            let name = std::path::Path::new(script_path)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| script_path.clone());
+            format!("Script: {name}")
         }
     }
 }
@@ -713,6 +887,7 @@ fn step_icon_color<'a>(step: &StepAction, p: &'a Palette) -> (&'static str, egui
         StepAction::Filter { .. } => ("\u{1f50d}", p.status_red),       // 🔍
         StepAction::Delay { .. } => ("\u{23f1}", p.text_muted),         // ⏱
         StepAction::Transform { .. } => ("\u{2728}", p.status_green),   // ✨
+        StepAction::RunScript { .. } => ("\u{1f4dc}", p.accent),         // 📜
     }
 }
 
@@ -792,8 +967,152 @@ fn build_trigger(form: &RuleForm) -> TriggerCondition {
                 },
             },
         },
+        5 => TriggerCondition::CalendarEvent {
+            calendar_id: if form.calendar_id.is_empty() {
+                "primary".into()
+            } else {
+                form.calendar_id.clone()
+            },
+            keyword_filter: if form.calendar_keyword.trim().is_empty() {
+                None
+            } else {
+                Some(form.calendar_keyword.clone())
+            },
+            minutes_before: form.calendar_minutes_before,
+        },
         _ => TriggerCondition::Manual,
     }
+}
+
+/// Convert an existing AutomationRule into a RuleForm for editing.
+fn form_from_rule(rule: &AutomationRule) -> RuleForm {
+    let mut form = RuleForm::default();
+    form.name = rule.name.clone();
+    form.description = rule.description.clone();
+
+    // Populate trigger fields.
+    match &rule.trigger {
+        TriggerCondition::SlackMessage { channel_name, keyword_filter } => {
+            form.trigger_type = 1;
+            form.slack_channel = channel_name.clone();
+            form.slack_keyword = keyword_filter.clone().unwrap_or_default();
+        }
+        TriggerCondition::Webhook { path, secret } => {
+            form.trigger_type = 2;
+            form.webhook_path = path.clone();
+            form.webhook_secret = secret.clone().unwrap_or_default();
+        }
+        TriggerCondition::ChannelMessage { platform_id, channel_filter, keyword_filter } => {
+            form.trigger_type = 3;
+            form.channel_platform = platform_id.clone();
+            form.channel_filter = channel_filter.clone().unwrap_or_default();
+            form.channel_keyword = keyword_filter.clone().unwrap_or_default();
+        }
+        TriggerCondition::Schedule { definition } => {
+            form.trigger_type = 4;
+            match definition {
+                ScheduleDefinition::Interval { seconds } => {
+                    form.schedule_type = 0;
+                    form.interval_minutes = (*seconds / 60) as u32;
+                }
+                ScheduleDefinition::Cron { expression, .. } => {
+                    form.schedule_type = 1;
+                    form.cron_expression = expression.clone();
+                }
+                _ => {}
+            }
+        }
+        TriggerCondition::CalendarEvent { calendar_id, keyword_filter, minutes_before } => {
+            form.trigger_type = 5;
+            form.calendar_id = calendar_id.clone();
+            form.calendar_keyword = keyword_filter.clone().unwrap_or_default();
+            form.calendar_minutes_before = *minutes_before;
+        }
+        TriggerCondition::Manual => {
+            form.trigger_type = 0;
+        }
+    }
+
+    // Populate steps.
+    form.steps = rule.steps.iter().map(|step| {
+        let mut sf = StepForm::default();
+        sf.name = step.name.clone();
+        match &step.step_type {
+            StepAction::RunPrompt { prompt, include_event_context, include_previous_output, sandbox, .. } => {
+                sf.step_type = 0;
+                sf.prompt = prompt.clone();
+                sf.include_event_context = *include_event_context;
+                sf.include_previous_output = *include_previous_output;
+                if let Some(sb) = sandbox {
+                    sf.sandbox_enabled = true;
+                    sf.sandbox_mounts = sb.mounts.iter().map(|m| (m.host_path.clone(), m.read_only)).collect();
+                    sf.sandbox_allow_network = sb.allow_network;
+                    sf.sandbox_image = sb.image.clone().unwrap_or_default();
+                }
+            }
+            StepAction::RunJob { job_id } => {
+                sf.step_type = 1;
+                sf.target_job_id = job_id.clone();
+            }
+            StepAction::Notify { message } => {
+                sf.step_type = 2;
+                sf.notify_message = message.clone();
+            }
+            StepAction::Filter { condition } => {
+                sf.step_type = 3;
+                match condition {
+                    FilterCondition::Contains { text } => { sf.filter_type = 0; sf.filter_text = text.clone(); }
+                    FilterCondition::NotContains { text } => { sf.filter_type = 1; sf.filter_text = text.clone(); }
+                    FilterCondition::IsEmpty => { sf.filter_type = 2; }
+                    FilterCondition::IsNotEmpty => { sf.filter_type = 3; }
+                }
+            }
+            StepAction::Delay { seconds } => {
+                sf.step_type = 4;
+                sf.delay_seconds = *seconds;
+            }
+            StepAction::Transform { prompt, sandbox } => {
+                sf.step_type = 5;
+                sf.transform_prompt = prompt.clone();
+                if let Some(sb) = sandbox {
+                    sf.sandbox_enabled = true;
+                    sf.sandbox_mounts = sb.mounts.iter().map(|m| (m.host_path.clone(), m.read_only)).collect();
+                    sf.sandbox_allow_network = sb.allow_network;
+                    sf.sandbox_image = sb.image.clone().unwrap_or_default();
+                }
+            }
+            StepAction::RunScript { script_path, entry_function } => {
+                sf.step_type = 6;
+                sf.script_path = script_path.clone();
+                sf.script_entry_function = entry_function.clone();
+            }
+        }
+        sf
+    }).collect();
+
+    form
+}
+
+fn build_sandbox(sf: &StepForm) -> Option<StepSandbox> {
+    if !sf.sandbox_enabled {
+        return None;
+    }
+    Some(StepSandbox {
+        mounts: sf
+            .sandbox_mounts
+            .iter()
+            .map(|(path, ro)| SandboxMount {
+                host_path: path.clone(),
+                read_only: *ro,
+            })
+            .collect(),
+        allow_network: sf.sandbox_allow_network,
+        image: if sf.sandbox_image.trim().is_empty() {
+            None
+        } else {
+            Some(sf.sandbox_image.clone())
+        },
+    })
 }
 
 fn build_steps(forms: &[StepForm]) -> Vec<AutomationStep> {
@@ -815,6 +1134,7 @@ fn build_steps(forms: &[StepForm]) -> Vec<AutomationStep> {
                     include_previous_output: sf.include_previous_output,
                     backend_override: None,
                     model_override: None,
+                    sandbox: build_sandbox(sf),
                 },
                 1 => StepAction::RunJob {
                     job_id: sf.target_job_id.clone(),
@@ -843,8 +1163,17 @@ fn build_steps(forms: &[StepForm]) -> Vec<AutomationStep> {
                 4 => StepAction::Delay {
                     seconds: sf.delay_seconds.max(1),
                 },
-                _ => StepAction::Transform {
+                5 => StepAction::Transform {
                     prompt: sf.transform_prompt.clone(),
+                    sandbox: build_sandbox(sf),
+                },
+                _ => StepAction::RunScript {
+                    script_path: sf.script_path.clone(),
+                    entry_function: if sf.script_entry_function.trim().is_empty() {
+                        "main".into()
+                    } else {
+                        sf.script_entry_function.clone()
+                    },
                 },
             },
             enabled: true,
@@ -858,6 +1187,107 @@ fn build_steps(forms: &[StepForm]) -> Vec<AutomationStep> {
 
 /// A text field that shows matching Slack channels as the user types.
 /// Validates that the entered channel exists and stores the channel ID.
+fn show_sandbox_config(ui: &mut egui::Ui, step: &mut StepForm) {
+    Toggle::new(&mut step.sandbox_enabled)
+        .label("Docker sandbox")
+        .show(ui);
+
+    if step.sandbox_enabled && cfg!(target_os = "macos") {
+        Label::new("Note: Docker sandboxing requires Linux. On macOS, the step will run directly without container isolation.")
+            .font(Font::Caption)
+            .color(ui.palette().status_yellow)
+            .show(ui);
+    }
+
+    if step.sandbox_enabled {
+        egui_swift::spacer!(ui, 4.0);
+
+        // Volume mounts.
+        Label::new("Allowed paths").font(Font::Caption).show(ui);
+        let mut remove_mount: Option<usize> = None;
+        for (i, (path, ro)) in step.sandbox_mounts.iter_mut().enumerate() {
+            egui_swift::hstack!(ui, {
+                Label::new(path.as_str())
+                    .font(Font::Footnote)
+                    .monospace(true)
+                    .show(ui);
+                if *ro {
+                    Label::new("(read-only)")
+                        .font(Font::Footnote)
+                        .muted()
+                        .show(ui);
+                } else {
+                    Label::new("(read-write)")
+                        .font(Font::Footnote)
+                        .color(ui.palette().status_yellow)
+                        .show(ui);
+                }
+                if Button::new("\u{2717}")
+                    .style(ButtonStyle::Borderless)
+                    .small(true)
+                    .show(ui)
+                    .clicked()
+                {
+                    remove_mount = Some(i);
+                }
+            });
+        }
+        if let Some(idx) = remove_mount {
+            step.sandbox_mounts.remove(idx);
+        }
+
+        // Add mount.
+        egui_swift::hstack!(ui, {
+            ui.scope(|ui| {
+                ui.set_width(200.0);
+                TextField::new(&mut step.sandbox_new_mount)
+                    .placeholder("~/Obsidian")
+                    .show(ui);
+            });
+            Toggle::new(&mut step.sandbox_new_mount_readonly)
+                .label("Read-only")
+                .show(ui);
+            if Button::new("Add")
+                .style(ButtonStyle::Bordered)
+                .small(true)
+                .show(ui)
+                .clicked()
+            {
+                if !step.sandbox_new_mount.trim().is_empty() {
+                    // Expand ~ to home dir.
+                    let path = if step.sandbox_new_mount.starts_with('~') {
+                        if let Ok(home) = std::env::var("HOME") {
+                            step.sandbox_new_mount.replacen('~', &home, 1)
+                        } else {
+                            step.sandbox_new_mount.clone()
+                        }
+                    } else {
+                        step.sandbox_new_mount.clone()
+                    };
+                    step.sandbox_mounts.push((path, step.sandbox_new_mount_readonly));
+                    step.sandbox_new_mount.clear();
+                    step.sandbox_new_mount_readonly = true;
+                }
+            }
+        });
+
+        egui_swift::spacer!(ui, 4.0);
+        Toggle::new(&mut step.sandbox_allow_network)
+            .label("Allow network access")
+            .show(ui);
+
+        egui_swift::spacer!(ui, 4.0);
+        TextField::new(&mut step.sandbox_image)
+            .label("Docker image (optional)")
+            .placeholder("e.g. anthropic/claude-cli:latest")
+            .show(ui);
+        Label::new("Leave empty to use the default image")
+            .font(Font::Caption)
+            .muted()
+            .show(ui);
+    }
+}
+
 fn slack_channel_picker(
     ui: &mut egui::Ui,
     shared: &crate::bridge::SharedState,

@@ -18,6 +18,8 @@ cron = "0.15"
 which = "7"
 tempfile = "3"
 zip = "2"
+reqwest = { version = "0.12", features = ["json"] }
+rune = "0.14"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros"] }

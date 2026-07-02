@@ -142,6 +142,18 @@ pub async fn execute_job(
     default_backend_id: &str,
     connector_data: Option<&str>,
 ) -> JobRun {
+    execute_job_sandboxed(job, backend_registry, fallback_order, default_backend_id, connector_data, None).await
+}
+
+/// Execute a job with optional Docker sandbox isolation.
+pub async fn execute_job_sandboxed(
+    job: &ScheduledJob,
+    backend_registry: &[BackendStatus],
+    fallback_order: &[String],
+    default_backend_id: &str,
+    connector_data: Option<&str>,
+    sandbox: Option<crate::backend::SandboxConfig>,
+) -> JobRun {
     let mut run = new_job_run();
     let start = Instant::now();
 
@@ -196,34 +208,53 @@ pub async fn execute_job(
 
     let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
 
-    let outcome = orchestrator::run_chat(
+    let outcome = orchestrator::run_chat_sandboxed(
         def.as_ref(),
         &binary_path.clone(),
         params,
         None,
         &bs.env_overrides,
         cancel_rx,
+        sandbox,
     )
     .await;
 
     match outcome {
         SendOutcome::Completed { events, duration_ms } => {
-            // Collect text from events.
+            // Collect text and errors from events.
             let mut text = String::new();
+            let mut errors = String::new();
             for event in &events {
-                if let StreamEvent::TextChunk(chunk) = event {
-                    text.push_str(chunk);
+                match event {
+                    StreamEvent::TextChunk(chunk) => text.push_str(chunk),
+                    StreamEvent::Error(e) => {
+                        if !errors.is_empty() {
+                            errors.push('\n');
+                        }
+                        errors.push_str(e);
+                    }
+                    _ => {}
                 }
             }
-            let summary = if text.len() > 200 {
-                format!("{}...", &text[..197])
-            } else {
-                text
-            };
 
-            run.status = JobRunStatus::Success;
-            run.output_summary = Some(summary);
-            run.duration_ms = Some(duration_ms);
+            if text.is_empty() && !errors.is_empty() {
+                // Backend ran but produced only errors and no text.
+                run.status = JobRunStatus::Failure;
+                run.error = Some(errors);
+                run.duration_ms = Some(duration_ms);
+            } else {
+                let summary = if text.len() > 200 {
+                    format!("{}...", &text[..197])
+                } else {
+                    text
+                };
+                run.status = JobRunStatus::Success;
+                run.output_summary = Some(summary);
+                run.duration_ms = Some(duration_ms);
+                if !errors.is_empty() {
+                    tracing::warn!("job '{}' completed with errors: {errors}", job.name);
+                }
+            }
         }
         SendOutcome::Cancelled => {
             run.status = JobRunStatus::Cancelled;
