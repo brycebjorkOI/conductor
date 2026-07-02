@@ -3,17 +3,22 @@ use egui_swift::prelude::*;
 
 pub struct MessageListView {
     pub session: Option<Session>,
+    md_cache: egui_commonmark::CommonMarkCache,
 }
 
 impl MessageListView {
     pub fn new() -> Self {
-        Self { session: None }
+        Self {
+            session: None,
+            md_cache: egui_commonmark::CommonMarkCache::default(),
+        }
     }
 }
 
 impl View for MessageListView {
     fn body(&mut self, ui: &mut egui::Ui) {
-        let Some(ref session) = self.session else {
+        let Self { session, md_cache } = self;
+        let Some(session) = session.as_ref() else {
             return;
         };
 
@@ -34,7 +39,7 @@ impl View for MessageListView {
                     egui_swift::spacer!(ui, 24.0);
 
                     for msg in &session.messages {
-                        render_message(ui, msg);
+                        render_message(ui, msg, md_cache);
                         egui_swift::spacer!(ui, Layout::MESSAGE_SPACING);
                     }
 
@@ -93,10 +98,10 @@ fn render_empty_state(ui: &mut egui::Ui) {
     });
 }
 
-fn render_message(ui: &mut egui::Ui, msg: &Message) {
+fn render_message(ui: &mut egui::Ui, msg: &Message, md_cache: &mut egui_commonmark::CommonMarkCache) {
     match msg.role {
         MessageRole::User => render_user_message(ui, msg),
-        MessageRole::Assistant => render_assistant_message(ui, msg),
+        MessageRole::Assistant => render_assistant_message(ui, msg, md_cache),
         MessageRole::System => render_system_message(ui, msg),
         MessageRole::Error => render_error_message(ui, msg),
     }
@@ -116,18 +121,19 @@ fn render_user_message(ui: &mut egui::Ui, msg: &Message) {
             .inner_margin(egui::Margin::symmetric(16, 10));
 
         frame.show(ui, |ui| {
-            ui.set_max_width(Layout::MAX_CONTENT_WIDTH * 0.78);
-            ui.with_layout(
-                egui::Layout::left_to_right(egui::Align::TOP).with_main_wrap(true),
-                |ui| {
-                    Label::new(&msg.content).font(Font::Body).show(ui);
-                },
-            );
+            ui.vertical(|ui| {
+                ui.set_max_width(Layout::MAX_CONTENT_WIDTH * 0.78);
+                Label::new(&msg.content).font(Font::Body).show(ui);
+            });
         });
     });
 }
 
-fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
+fn render_assistant_message(
+    ui: &mut egui::Ui,
+    msg: &Message,
+    md_cache: &mut egui_commonmark::CommonMarkCache,
+) {
     // -- Thinking section (shown above tool cards and response text) --
     if let Some(ref thinking) = msg.thinking_content {
         if !thinking.is_empty() {
@@ -154,8 +160,7 @@ fn render_assistant_message(ui: &mut egui::Ui, msg: &Message) {
 
     // -- Response text (Markdown) --
     if !msg.content.is_empty() {
-        let mut cache = egui_commonmark::CommonMarkCache::default();
-        egui_commonmark::CommonMarkViewer::new().show(ui, &mut cache, &msg.content);
+        egui_commonmark::CommonMarkViewer::new().show(ui, md_cache, &msg.content);
     }
 
     if msg.status == MessageStatus::Cancelled {
@@ -223,17 +228,15 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, msg_id: &str, idx: usize
         ToolPhase::Failed => (icons::XMARK, p.status_red),
     };
 
-    let uid = format!("tc_{msg_id}_{idx}");
+    let state_id = ui.make_persistent_id(("tool_card_open", msg_id, idx));
+    let mut open = ui.data_mut(|d| *d.get_temp_mut_or(state_id, false));
 
     Card::new()
         .padding(egui::Margin::symmetric(12, 8))
         .show(ui, |ui| {
-            let header = format!("{status_icon}  {}", card.tool_name);
-            let mut open = false;
-            DisclosureGroup::new(&header, &mut open)
+            DisclosureGroup::new(&card.tool_name, &mut open)
                 .icon(status_icon)
                 .show(ui, |ui| {
-                    let _ = &uid; // keep uid alive for identity
                     for (key, value) in &card.arguments {
                         egui_swift::hstack!(ui, {
                             Label::new(&format!("{key}:"))
@@ -263,6 +266,8 @@ fn render_tool_card(ui: &mut egui::Ui, card: &ToolCard, msg_id: &str, idx: usize
                     }
                 });
         });
+
+    ui.data_mut(|d| d.insert_temp(state_id, open));
 }
 
 /// Render the thinking/reasoning section.
@@ -272,8 +277,9 @@ fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming
     let summary = {
         let first_line = thinking.lines().next().unwrap_or("Thinking...");
         let trimmed = first_line.trim();
-        if trimmed.len() > 60 {
-            format!("{}...", &trimmed[..57])
+        if trimmed.chars().count() > 60 {
+            let head: String = trimmed.chars().take(57).collect();
+            format!("{head}...")
         } else if trimmed.is_empty() {
             "Thinking...".to_string()
         } else {
@@ -282,10 +288,10 @@ fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming
     };
 
     let header_text = format!("\u{1f4ad} {summary}");
-    let mut open = false;
+    let state_id = ui.make_persistent_id(("thinking_open", msg_id));
+    let mut open = ui.data_mut(|d| *d.get_temp_mut_or(state_id, false));
 
     DisclosureGroup::new(&header_text, &mut open).show(ui, |ui| {
-        let _ = msg_id; // keep alive for identity
         let lines: Vec<&str> = thinking.lines().filter(|l| !l.trim().is_empty()).collect();
 
         for (i, line) in lines.iter().enumerate() {
@@ -324,4 +330,6 @@ fn render_thinking(ui: &mut egui::Ui, msg_id: &str, thinking: &str, is_streaming
             }
         }
     });
+
+    ui.data_mut(|d| d.insert_temp(state_id, open));
 }

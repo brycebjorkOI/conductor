@@ -462,6 +462,9 @@ async fn dispatcher(
                 shared.mutate(|s| {
                     s.sessions.insert(new_id.clone(), new_session);
                     s.active_session_id = new_id;
+                    s.current_view = ViewMode::Chat;
+                    s.notifications_open = false;
+                    s.settings_open = false;
                 });
             }
 
@@ -469,6 +472,9 @@ async fn dispatcher(
                 shared.mutate(|s| {
                     if s.sessions.contains_key(&session_id) {
                         s.active_session_id = session_id;
+                        s.current_view = ViewMode::Chat;
+                        s.notifications_open = false;
+                        s.settings_open = false;
                     }
                 });
             }

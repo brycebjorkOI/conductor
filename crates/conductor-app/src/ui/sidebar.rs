@@ -29,7 +29,7 @@ impl View for SidebarView {
         let state = self.shared.read();
         let active_sid = state.active_session_id.clone();
 
-        let mut sessions: Vec<(String, String)> = state
+        let mut sessions: Vec<(String, String, chrono::DateTime<chrono::Utc>)> = state
             .sessions
             .iter()
             .map(|(id, s)| {
@@ -37,10 +37,16 @@ impl View for SidebarView {
                     .display_name
                     .clone()
                     .unwrap_or_else(|| session::auto_display_name(s));
-                (id.clone(), name)
+                let last_activity = s
+                    .messages
+                    .last()
+                    .map(|m| m.timestamp)
+                    .unwrap_or(s.created_at);
+                (id.clone(), name, last_activity)
             })
             .collect();
-        sessions.sort_by(|a, b| a.1.cmp(&b.1));
+        // "Recent" means most recent activity first.
+        sessions.sort_by(|a, b| b.2.cmp(&a.2));
         drop(state);
 
         if NavRow::new("New Conversation")
@@ -71,13 +77,12 @@ impl View for SidebarView {
             .show(ui)
             .clicked()
         {
-            self.shared.mutate(|s| s.current_view = ViewMode::Chat);
+            self.shared.mutate(|s| {
+                s.current_view = ViewMode::Chat;
+                s.settings_open = false;
+                s.notifications_open = false;
+            });
         }
-        if NavRow::new("Projects")
-            .icon(icons::FOLDER)
-            .show(ui)
-            .clicked()
-        {}
         if NavRow::new("Jobs")
             .icon(icons::CHECKMARK)
             .active(current_view == ViewMode::Jobs)
@@ -123,12 +128,6 @@ impl View for SidebarView {
                 let _ = self.tx.send(Action::ToggleNotifications);
             }
         }
-        if NavRow::new("Trash")
-            .icon(icons::WASTEBASKET)
-            .show(ui)
-            .clicked()
-        {}
-
         egui_swift::spacer!(ui, 8.0);
         Divider::new().inset(8.0).show(ui);
         egui_swift::spacer!(ui, 4.0);
@@ -138,7 +137,7 @@ impl View for SidebarView {
 
         ScrollView::vertical().show(ui, |ui| {
             let query = self.search_query.to_lowercase();
-            for (id, name) in &sessions {
+            for (id, name, _) in &sessions {
                 if !query.is_empty() && !name.to_lowercase().contains(&query) {
                     continue;
                 }

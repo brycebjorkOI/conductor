@@ -55,17 +55,15 @@ impl View for HeaderView {
         egui_swift::hstack!(ui, {
             egui_swift::spacer!(ui, 8.0);
 
-            if !self.sidebar_open {
-                if Button::new(icons::HAMBURGER)
-                    .style(ButtonStyle::Borderless)
-                    .small(true)
-                    .show(ui)
-                    .clicked()
-                {
-                    self.sidebar_open = true;
-                }
-                egui_swift::spacer!(ui, 4.0);
+            if Button::new(icons::HAMBURGER)
+                .style(ButtonStyle::Borderless)
+                .small(true)
+                .show(ui)
+                .clicked()
+            {
+                self.sidebar_open = !self.sidebar_open;
             }
+            egui_swift::spacer!(ui, 4.0);
 
             if found_backends.len() >= 2 {
                 ui.with_layout(
